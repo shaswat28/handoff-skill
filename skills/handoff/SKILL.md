@@ -3,7 +3,7 @@ name: handoff
 description: Write handoff.md capturing what matters in this codebase and what was done this session (from git, changed .md files and the chat log, cheaply), then open a fresh Claude Code session in the same folder that reads it.
 argument-hint: "[focus notes] [--no-launch] [--paste | --terminal]"
 disable-model-invocation: true
-allowed-tools: Bash(python3 *) Bash(git status *) Bash(git diff *) Bash(git log *) Read Write Edit
+allowed-tools: Bash(sh "${CLAUDE_SKILL_DIR}/scripts/py" *) Bash(git status *) Bash(git diff *) Bash(git log *) Read Write Edit
 ---
 
 # /handoff
@@ -22,13 +22,13 @@ The point of this skill is a good handoff *without* burning tokens.
   already covers, `cat` whole files, re-read the raw `.jsonl` transcript, or spawn subagents.
 - Only if `compactions:` in the Session index is **> 0** (earlier conversation was
   summarised away) run the condensed transcript once:
-  `python3 "${CLAUDE_SKILL_DIR}/scripts/digest.py" transcript --session "${CLAUDE_SESSION_ID}" --cwd "${CLAUDE_PROJECT_DIR}"`
+  `sh "${CLAUDE_SKILL_DIR}/scripts/py" digest.py transcript --session "${CLAUDE_SESSION_ID}" --cwd "${CLAUDE_PROJECT_DIR}"`
 - You may open at most ~3 specific files (or line ranges) if a claim in the handoff
   needs checking. Budget: the whole skill run should read well under 20k tokens.
 
 ## Pre-computed digest
 
-!`python3 "${CLAUDE_SKILL_DIR}/scripts/digest.py" context --session "${CLAUDE_SESSION_ID}" --cwd "${CLAUDE_PROJECT_DIR}"`
+!`sh "${CLAUDE_SKILL_DIR}/scripts/py" digest.py context --session "${CLAUDE_SESSION_ID}" --cwd "${CLAUDE_PROJECT_DIR}"`
 
 (If the line above shows a raw command instead of its output, shell injection is
 disabled in this environment: run that command yourself once.)
@@ -51,7 +51,7 @@ disabled in this environment: run that command yourself once.)
    If `$ARGUMENTS` has focus notes, weight the handoff toward them.
 4. **Don't commit `handoff.md`** unless the user asked; it's session state.
 5. **Launch the new session** unless `$ARGUMENTS` contains `--no-launch`:
-   `python3 "${CLAUDE_SKILL_DIR}/scripts/launch.py" --cwd "${CLAUDE_PROJECT_DIR}"`
+   `sh "${CLAUDE_SKILL_DIR}/scripts/py" launch.py --cwd "${CLAUDE_PROJECT_DIR}"`
    Append `--mode paste` if `$ARGUMENTS` contains `--paste`, or `--mode terminal` if it
    contains `--terminal`.
    - `LAUNCHED:` → tell the user a new terminal opened with the new session.

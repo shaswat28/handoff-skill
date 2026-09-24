@@ -1,0 +1,17 @@
+#!/bin/sh
+# Run a script from this folder with whichever Python 3.8+ exists:
+#   sh scripts/py digest.py context ...
+# Windows often has `python` or `py` but no `python3`, and its `python3` may be
+# the Microsoft Store placeholder, so each candidate is tested before use.
+# Exits 0 even when nothing is found: a failing !`command` aborts /handoff.
+dir=$(dirname "$0")
+script="$1"
+shift
+for py in python3 python "py -3"; do
+  # $py is unquoted on purpose so "py -3" splits into command + flag.
+  if $py -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+    exec $py "$dir/$script" "$@"
+  fi
+done
+echo "handoff: no Python 3.8+ found (tried python3, python, py -3). Install it from python.org and retry."
+exit 0

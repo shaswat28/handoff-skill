@@ -1,5 +1,31 @@
 # DESIGN.md — running log
 
+## 2026-09-24 (evening) — Windows support
+
+**Built.** `scripts/py`, a POSIX-sh wrapper that tries `python3`, then
+`python`, then `py -3`. It checks each one's version before using it. All
+SKILL.md commands go through it. The README has PowerShell and Git Bash
+install steps. The installer now accepts any of the three Python names.
+
+**Why.** On Windows `python3` is often absent, or it is the Microsoft Store
+placeholder that exits non-zero. A non-zero exit from the `!` injection aborts
+`/handoff`, so the skill would have broken for many Windows users.
+
+**Verified.** Simulated a placeholder `python3` with a working `python`, no
+Python at all (prints a message, exits 0), and a directory path with
+backslashes. A full headless `/handoff` run through the wrapper completed: 3
+turns, $0.12.
+
+**Rejected.** A `python3 … || python … || py …` chain inline in SKILL.md:
+it would be repeated in 3 places, and the placeholder can print noise before
+failing. An `install.ps1`: Claude Code on Windows needs Git Bash anyway, so a
+3-line PowerShell copy in the README is enough. Relying on `--link` on
+Windows: Git Bash's `ln -s` copies unless Developer Mode is on and
+`MSYS=winsymlinks:nativestrict` is set.
+
+**Unverified.** Everything on a real Windows machine, especially the
+Windows Terminal (`wt`) and `cmd` launch commands.
+
 ## 2026-09-24 (later still) — Claude desktop app support
 
 **Built.** A paste mode in `launch.py`. In the desktop app's Code tab, opening

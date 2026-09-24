@@ -57,6 +57,10 @@ machines**. Only the tmux and fallback paths have been exercised.
   local desktop session is *unverified*, and `--paste` / `--terminal` override
   it. The launcher tests have to clear this variable, or they fail when run
   inside the app.
+- **Always call the scripts through `sh scripts/py`, never `python3` directly.**
+  On Windows `python3` is often missing or is the Microsoft Store placeholder,
+  which exits non-zero. A non-zero exit from the `!` injection aborts the skill.
+  The wrapper tests each Python before using it and exits 0 if none works.
 - **`section()` must not `strip()` leading spaces.** Stripping them
   corrupted the first `git status --short` line (` M` became `M`).
 - **The template's outer fence in SKILL.md is four backticks.** It contains

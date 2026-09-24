@@ -19,7 +19,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-command -v python3 >/dev/null || echo "warning: python3 not found on PATH; the skill's scripts need it" >&2
+command -v python3 >/dev/null || command -v python >/dev/null || command -v py >/dev/null \
+  || echo "warning: no python3/python/py on PATH; the skill's scripts need Python 3.8+" >&2
 
 mkdir -p "$(dirname "$dest")"
 if [ -e "$dest" ] || [ -L "$dest" ]; then
@@ -35,6 +36,6 @@ if [ "$mode" = link ]; then
 else
   cp -R "$src" "$dest"
 fi
-chmod +x "$dest"/scripts/*.py
+chmod +x "$dest"/scripts/*.py "$dest"/scripts/py
 echo "installed ($mode): $dest"
 echo "restart Claude Code (or open a new session), then type /handoff"

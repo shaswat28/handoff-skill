@@ -16,7 +16,8 @@ When a Claude Code chat gets long, type `/handoff`. The skill:
 
 ## Install
 
-Requires Claude Code, `git`, and `python3` (3.8+, standard library only).
+Requires Claude Code, `git`, and Python 3.8+ (standard library only). The
+skill finds whichever of `python3`, `python` or `py -3` works.
 
 ```sh
 git clone https://github.com/shaswat28/handoff-skill.git
@@ -27,6 +28,25 @@ cd handoff-skill
 ```
 
 Restart Claude Code, then type `/handoff`.
+
+### Windows
+
+Claude Code on Windows uses Git Bash, which comes with Git for Windows. The
+skill's commands also run in that shell. You also need Python from
+[python.org](https://www.python.org/downloads/). Tick "Add python.exe to PATH"
+in the installer.
+
+In **PowerShell**:
+
+```powershell
+git clone https://github.com/shaswat28/handoff-skill.git $HOME\handoff-skill
+New-Item -ItemType Directory -Force $HOME\.claude\skills | Out-Null
+Copy-Item -Recurse -Force $HOME\handoff-skill\skills\handoff $HOME\.claude\skills\
+```
+
+Or in **Git Bash**: `cd ~/handoff-skill && ./install.sh`. Don't use `--link`
+on Windows. Git Bash's `ln -s` usually makes a copy rather than a real link.
+To update later, `git pull` in `~\handoff-skill` and run the copy step again.
 
 ## Usage
 
@@ -88,6 +108,7 @@ expect the cost to be dominated by the context the chat already holds.
 ```
 skills/handoff/
   SKILL.md             the prompt: token rules, injected digest, steps, handoff template
+  scripts/py           picks a working Python (python3 / python / py -3), always exits 0
   scripts/digest.py    `context`: git + .md diffs + session index (injected at load)
                        `transcript`: condensed chat log (only after compaction)
   scripts/launch.py    opens a terminal running `claude "<prompt>"`, else prints + copies
@@ -123,8 +144,9 @@ wezterm, alacritty, xfce4-terminal, x-terminal-emulator or xterm.
   unless skill sync is on. Use `--project` to commit the skill into a repo instead.
 - `!` injection can be turned off with `disableSkillShellExecution`. The skill
   then tells Claude to run the digest itself, which costs one extra tool call.
-- On Windows the commands call `python3`. If you only have `py`/`python`,
-  edit the two commands in `SKILL.md`.
+- **Windows is untested on a real machine.** Tests simulated the Store
+  `python3` placeholder, a missing Python, and backslash paths. Launching Windows
+  Terminal / `cmd` has not been run for real.
 - The macOS, Windows and desktop Linux launch paths have **not been tested on
   real machines yet**. The macOS AppleScript commands and the fallback
   behaviour are covered by unit tests, but nothing has run on a real Mac.
