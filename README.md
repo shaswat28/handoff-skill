@@ -34,7 +34,23 @@ Restart Claude Code, then type `/handoff`.
 /handoff                          # write handoff.md, open a new session
 /handoff focus on the auth bug    # weight the handoff toward something
 /handoff --no-launch              # write handoff.md only
+/handoff --paste                  # copy the prompt instead of opening a terminal
+/handoff --terminal               # force a terminal window (e.g. from the desktop app)
 ```
+
+### Claude desktop app
+
+The skill works in the desktop app's **Code** tab. Sessions there run Claude
+Code on your machine, so they load `~/.claude/skills`. It doesn't work in the
+regular **Chat** tab, which has no access to your project folder or git.
+
+A terminal window is the wrong place for the new chat when you work in the app,
+so the skill switches to paste mode instead. It copies the "read handoff.md"
+prompt to your clipboard, and you start a new session in the app on the same
+folder and paste it. The app is detected from the `CLAUDE_CODE_ENTRYPOINT`
+environment variable containing "desktop". That value isn't documented, so if
+you get a terminal window from the app anyway, use `/handoff --paste`.
+The skill prints the entrypoint it saw, so you can report it.
 
 If no new terminal can be opened (Claude desktop/web app, SSH, VS Code's
 built-in terminal), the skill prints the `claude "…"` command and tries to copy

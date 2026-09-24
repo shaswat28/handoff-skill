@@ -113,7 +113,8 @@ class DigestTest(unittest.TestCase):
 
 class LaunchTest(unittest.TestCase):
     def test_fallback_prints_command(self):
-        env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "TMUX")}
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("DISPLAY", "WAYLAND_DISPLAY", "TMUX", "CLAUDE_CODE_ENTRYPOINT")}
         code, out = run([LAUNCH, "--dry-run", "--cwd", "/tmp/a b"], env)
         self.assertEqual(code, 0)
         if sys.platform.startswith("linux"):
@@ -121,11 +122,31 @@ class LaunchTest(unittest.TestCase):
             self.assertIn("cd '/tmp/a b' && claude 'Read handoff.md", out)
 
     def test_tmux_preferred(self):
-        env = {**os.environ, "TMUX": "1"}
+        env = {**os.environ, "TMUX": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"}
         code, out = run([LAUNCH, "--dry-run", "--cwd", "/tmp"], env)
         if "tmux" in out:
             self.assertIn("[dry-run] would launch via tmux window", out)
             self.assertNotIn("NOT_LAUNCHED", out)
+
+
+class PasteModeTest(unittest.TestCase):
+    def test_desktop_entrypoint_uses_paste_mode(self):
+        env = {**os.environ, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "TMUX": "1"}
+        code, out = run([LAUNCH, "--dry-run", "--cwd", "/tmp"], env)
+        self.assertEqual(code, 0)
+        self.assertIn("PASTE_MODE", out)
+        self.assertIn("Read handoff.md", out)
+        self.assertNotIn("tmux", out)
+
+    def test_terminal_mode_overrides_desktop(self):
+        env = {**os.environ, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop"}
+        code, out = run([LAUNCH, "--dry-run", "--mode", "terminal", "--cwd", "/tmp"], env)
+        self.assertNotIn("PASTE_MODE", out)
+
+    def test_cli_entrypoint_not_paste(self):
+        env = {**os.environ, "CLAUDE_CODE_ENTRYPOINT": "cli"}
+        code, out = run([LAUNCH, "--dry-run", "--cwd", "/tmp"], env)
+        self.assertNotIn("PASTE_MODE", out)
 
 
 class MacCandidatesTest(unittest.TestCase):
@@ -151,7 +172,7 @@ class MacCandidatesTest(unittest.TestCase):
         from unittest import mock
         with mock.patch.object(launch, "candidates", return_value=[("fake", ["tmux", "no-such-cmd"])]), \
                 mock.patch.object(launch, "copy_to_clipboard", return_value=None), \
-                mock.patch.object(sys, "argv", ["launch.py", "--cwd", "/tmp"]), \
+                mock.patch.object(sys, "argv", ["launch.py", "--mode", "terminal", "--cwd", "/tmp"]), \
                 mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as out:
             launch.main()
         self.assertIn("fake failed", out.getvalue())

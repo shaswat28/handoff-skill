@@ -1,5 +1,21 @@
 # DESIGN.md — running log
 
+## 2026-09-24 (later still) — Claude desktop app support
+
+**Built.** A paste mode in `launch.py`. In the desktop app's Code tab, opening
+Terminal.app would start command-line Claude outside the app, and `claude`
+may not even be on PATH there. Instead, the skill copies the prompt, and the
+user starts a new app session on the same folder and pastes it. Auto-detected
+from `CLAUDE_CODE_ENTRYPOINT` containing "desktop". It can be forced with
+`/handoff --paste` or `--terminal`. Added 3 tests.
+
+**Rejected.** Opening a new app session programmatically: no documented way
+to do it was found (no CLI flag or URL scheme), so it was left out rather than
+guessed at.
+
+**Unverified.** The entrypoint value in a *local* desktop session. It was
+only seen as `remote_desktop` in a cloud session.
+
 ## 2026-09-24 (later) — macOS launch fix
 
 **Fixed.** `launch.py` detached every launcher with `Popen` and printed

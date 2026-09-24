@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Open a new terminal in DIR running `claude "<prompt>"`.
 
-  launch.py --cwd DIR [--prompt TEXT] [--dry-run]
+  launch.py --cwd DIR [--prompt TEXT] [--mode auto|terminal|paste] [--dry-run]
 
 `claude "<prompt>"` starts an interactive session with the prompt already
 submitted, so the new chat starts reading handoff.md right away. If no
 terminal can be opened (Claude desktop/web app, SSH, CI), the command is
 printed and copied to the clipboard instead. Always exits 0.
+
+Paste mode (for the Claude desktop app, where a terminal window is the wrong
+place for the new chat) copies just the prompt, for pasting into a new app
+session. `auto` picks paste mode when CLAUDE_CODE_ENTRYPOINT mentions "desktop".
 """
 import argparse
 import os
@@ -22,6 +26,22 @@ DEFAULT_PROMPT = (
     "(git status, the files it names). Then give me a short summary of where things stand "
     "and what you plan to do next, and wait for my go-ahead before changing anything."
 )
+
+
+def is_desktop_app():
+    # Heuristic: the exact entrypoint value for the desktop app is not documented,
+    # so match loosely and let the user force a mode with --mode.
+    return "desktop" in os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").lower()
+
+
+def paste_mode(cwd, prompt, dry_run):
+    clip = None if dry_run else copy_to_clipboard(prompt)
+    print("PASTE_MODE: start a new session in the Claude app for this folder and paste the prompt.")
+    print(f"Folder: {cwd}")
+    print(f"Clipboard: {'prompt copied via ' + clip if clip else 'unavailable, copy it from below'}")
+    print(f"(entrypoint: {os.environ.get('CLAUDE_CODE_ENTRYPOINT', 'unset')})")
+    print("\nPrompt:\n")
+    print(prompt)
 
 
 def sh_command(cwd, prompt):
@@ -98,9 +118,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cwd", default=os.getcwd())
     ap.add_argument("--prompt", default=DEFAULT_PROMPT)
+    ap.add_argument("--mode", choices=["auto", "terminal", "paste"], default="auto")
     ap.add_argument("--dry-run", action="store_true", help="print what would run, launch nothing")
     args = ap.parse_args()
     cwd = os.path.abspath(args.cwd)
+
+    if args.mode == "paste" or (args.mode == "auto" and is_desktop_app()):
+        return paste_mode(cwd, args.prompt, args.dry_run)
 
     if not shutil.which("claude"):
         print("WARNING: `claude` is not on PATH here; the new terminal may not find it either.")

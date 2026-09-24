@@ -15,7 +15,7 @@ digest and launches a fresh session to read it. See README.md for usage.
 ## Commands
 
 ```sh
-python3 -m unittest discover -s tests -v    # 8 tests, <1s
+python3 -m unittest discover -s tests -v    # 11 tests, <1s
 ./install.sh --link                         # dev install: symlink into ~/.claude/skills
 ```
 
@@ -51,6 +51,12 @@ machines**. Only the tmux and fallback paths have been exercised.
   command on and exit, so their exit code tells you whether it worked. A
   detached `Popen` reported `LAUNCHED` even when macOS refused Automation
   permission (error -1743). Only terminal emulators that block are detached.
+- **Desktop-app detection is a guess.** Paste mode starts when
+  `CLAUDE_CODE_ENTRYPOINT` contains "desktop". That was seen as
+  `remote_desktop` in a cloud session started from the app. The value for a
+  local desktop session is *unverified*, and `--paste` / `--terminal` override
+  it. The launcher tests have to clear this variable, or they fail when run
+  inside the app.
 - **`section()` must not `strip()` leading spaces.** Stripping them
   corrupted the first `git status --short` line (` M` became `M`).
 - **The template's outer fence in SKILL.md is four backticks.** It contains
