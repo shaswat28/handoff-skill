@@ -1,5 +1,21 @@
 # DESIGN.md — running log
 
+## 2026-09-24 (later) — macOS launch fix
+
+**Fixed.** `launch.py` detached every launcher with `Popen` and printed
+`LAUNCHED` right away. On macOS, `osascript` can fail when Automation
+permission is denied (-1743), and the skill still reported success. Now the
+launchers that hand off and exit (osascript, tmux, wt, cmd) are run and waited
+on, and a non-zero exit falls through to the next one or the clipboard. On an
+Automation denial, it also prints where to allow it. Added 2 tests: the
+AppleScript quoting and the failed-launcher fallback.
+
+**Also this session.** The repo's single commit was re-authored as the
+owner, and the default branch moved to `main`.
+
+**Still deferred.** A run on a real Mac. Nothing has been tested outside a
+Linux container.
+
 ## 2026-09-24 — initial build
 
 **Built.** `skills/handoff/` (SKILL.md, `scripts/digest.py`, `scripts/launch.py`),

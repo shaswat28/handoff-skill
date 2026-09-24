@@ -89,6 +89,18 @@ you're inside tmux), then iTerm2 or Terminal.app on macOS, Windows Terminal or
 `cmd` on Windows, and on Linux with a display gnome-terminal, konsole, kitty,
 wezterm, alacritty, xfce4-terminal, x-terminal-emulator or xterm.
 
+## macOS notes
+
+- The skill opens a new **Terminal.app** window. If you run Claude Code
+  inside **iTerm2**, it opens an iTerm2 window instead. Inside tmux, it
+  opens a tmux window.
+- The first time, macOS asks whether your terminal may control
+  Terminal/iTerm2. Click **OK**. If you clicked Don't Allow, turn it on in
+  System Settings → Privacy & Security → Automation. Until then the skill
+  falls back to copying the command to your clipboard with `pbcopy`.
+- `python3` comes with the Xcode Command Line Tools. If running `python3`
+  offers to install them, accept.
+
 ## Limits and constraints
 
 - Personal skills (`~/.claude/skills`) don't load in claude.ai cloud sessions
@@ -98,8 +110,9 @@ wezterm, alacritty, xfce4-terminal, x-terminal-emulator or xterm.
 - On Windows the commands call `python3`. If you only have `py`/`python`,
   edit the two commands in `SKILL.md`.
 - The macOS, Windows and desktop Linux launch paths have **not been tested on
-  real machines yet**. Only the tmux and fallback paths were exercised, with
-  `--dry-run` and unit tests. Please report what happens on yours.
+  real machines yet**. The macOS AppleScript commands and the fallback
+  behaviour are covered by unit tests, but nothing has run on a real Mac.
+  Please report what happens on yours.
 - Compaction is detected from `compact_boundary` / `isCompactSummary` entries.
   Those names come from what the logs look like in practice, not from a
   documented format, so a future Claude Code version could change them.

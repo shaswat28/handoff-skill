@@ -28,6 +28,14 @@ def sh_command(cwd, prompt):
     return f"cd {shlex.quote(cwd)} && claude {shlex.quote(prompt)}"
 
 
+# Launchers that pass the command on and exit, so their exit code is meaningful.
+RETURNS_QUICKLY = {"osascript", "tmux", "wt", "cmd"}
+
+
+def clip_err(text):
+    return " ".join((text or "").split())[:200]
+
+
 def applescript_str(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -102,13 +110,25 @@ def main():
             print(f"[dry-run] would launch via {label}: {argv}")
             return
         try:
-            # Detach so the new terminal outlives this process.
-            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True)
+            if argv[0] in RETURNS_QUICKLY:
+                # These hand the command to a terminal and exit, so wait and check
+                # the exit code. A detached Popen would report success even when
+                # macOS denies osascript permission to control Terminal/iTerm2.
+                r = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
+                                   text=True, timeout=20)
+                if r.returncode != 0:
+                    raise RuntimeError(clip_err(r.stderr) or f"exit {r.returncode}")
+            else:
+                # Terminal emulators may block until closed: detach so they outlive us.
+                subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
             print(f"LAUNCHED: new Claude Code session via {label} in {cwd}")
             return
         except Exception as ex:
             print(f"({label} failed: {ex}; trying next)")
+            if "not allowed" in str(ex) or "-1743" in str(ex):
+                print("  macOS blocked automation: allow it in System Settings → Privacy & Security "
+                      "→ Automation (let your terminal control Terminal/iTerm2), then retry.")
 
     cmd = sh_command(cwd, args.prompt)
     clip = None if args.dry_run else copy_to_clipboard(cmd)

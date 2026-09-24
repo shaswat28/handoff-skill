@@ -15,7 +15,7 @@ digest and launches a fresh session to read it. See README.md for usage.
 ## Commands
 
 ```sh
-python3 -m unittest discover -s tests -v    # 6 tests, <1s
+python3 -m unittest discover -s tests -v    # 8 tests, <1s
 ./install.sh --link                         # dev install: symlink into ~/.claude/skills
 ```
 
@@ -47,6 +47,10 @@ machines**. Only the tmux and fallback paths have been exercised.
   by mtime, which is the live one.
 - **Don't use `context: fork` in SKILL.md.** A forked subagent has no access
   to the conversation, which is the main thing being handed off.
+- **Wait for osascript/tmux/wt/cmd, don't detach them.** They pass the
+  command on and exit, so their exit code tells you whether it worked. A
+  detached `Popen` reported `LAUNCHED` even when macOS refused Automation
+  permission (error -1743). Only terminal emulators that block are detached.
 - **`section()` must not `strip()` leading spaces.** Stripping them
   corrupted the first `git status --short` line (` M` became `M`).
 - **The template's outer fence in SKILL.md is four backticks.** It contains

@@ -128,5 +128,35 @@ class LaunchTest(unittest.TestCase):
             self.assertNotIn("NOT_LAUNCHED", out)
 
 
+class MacCandidatesTest(unittest.TestCase):
+    def test_macos_uses_osascript_with_escaped_prompt(self):
+        sys.path.insert(0, SCRIPTS)
+        import launch
+        from unittest import mock
+        env = {k: v for k, v in os.environ.items() if k != "TMUX"}
+        with mock.patch.object(launch.platform, "system", return_value="Darwin"), \
+                mock.patch.dict(os.environ, {**env, "TERM_PROGRAM": "iTerm.app"}, clear=True):
+            got = list(launch.candidates("/Users/me/my proj", 'say "hi" \\ bye'))
+        self.assertEqual([label for label, _ in got], ["iTerm2", "Terminal.app"])
+        script = got[1][1][2]
+        self.assertTrue(script.startswith('tell application "Terminal" to do script "cd'))
+        self.assertIn("'/Users/me/my proj'", script)
+        self.assertIn('\\"hi\\"', script)  # quotes escaped for AppleScript
+        self.assertIn("osascript", launch.RETURNS_QUICKLY)
+
+    def test_failed_launcher_falls_back(self):
+        # A launcher that exits non-zero must not be reported as LAUNCHED.
+        sys.path.insert(0, SCRIPTS)
+        import launch
+        from unittest import mock
+        with mock.patch.object(launch, "candidates", return_value=[("fake", ["tmux", "no-such-cmd"])]), \
+                mock.patch.object(launch, "copy_to_clipboard", return_value=None), \
+                mock.patch.object(sys, "argv", ["launch.py", "--cwd", "/tmp"]), \
+                mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as out:
+            launch.main()
+        self.assertIn("fake failed", out.getvalue())
+        self.assertIn("NOT_LAUNCHED", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
