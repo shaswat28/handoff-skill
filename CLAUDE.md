@@ -6,7 +6,7 @@ digest and launches a fresh session to read it. See README.md for usage.
 ## Architecture at a glance
 
 - `skills/handoff/SKILL.md` is the product. The Python scripts only feed it.
-- The digest is injected with `` !`python3 "${CLAUDE_SKILL_DIR}/scripts/digest.py" context …` ``
+- The digest is injected with `` !`sh "${CLAUDE_SKILL_DIR}/scripts/py" digest.py context …` ``
   at skill load time. The current conversation (already in Claude's context) is
   the primary source. The digest only adds git/.md/session-index facts.
 - `digest.py transcript` is a fallback, used only when `compactions > 0`.
@@ -15,7 +15,7 @@ digest and launches a fresh session to read it. See README.md for usage.
 ## Commands
 
 ```sh
-python3 -m unittest discover -s tests -v    # 11 tests, <1s
+python3 -m unittest discover -s tests -v    # 12 tests, <1s
 ./install.sh --link                         # dev install: symlink into ~/.claude/skills
 ```
 
@@ -61,6 +61,11 @@ machines**. Only the tmux and fallback paths have been exercised.
   On Windows `python3` is often missing or is the Microsoft Store placeholder,
   which exits non-zero. A non-zero exit from the `!` injection aborts the skill.
   The wrapper tests each Python before using it and exits 0 if none works.
+- **Files must stay LF. `.gitattributes` forces `eol=lf`.** Git for Windows
+  checks files out as CRLF by default. With CRLF, `scripts/py` stops working
+  (`shift: not found`, `Syntax error`), and `/handoff` then prints nothing and
+  writes no file. This happened on the owner's first Windows install and was
+  reproduced here. A test checks for CRLF in `skills/`.
 - **`section()` must not `strip()` leading spaces.** Stripping them
   corrupted the first `git status --short` line (` M` became `M`).
 - **The template's outer fence in SKILL.md is four backticks.** It contains

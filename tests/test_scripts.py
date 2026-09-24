@@ -149,6 +149,19 @@ class PasteModeTest(unittest.TestCase):
         self.assertNotIn("PASTE_MODE", out)
 
 
+class LineEndingsTest(unittest.TestCase):
+    def test_skill_files_are_lf_and_forced_lf(self):
+        # CRLF (Git for Windows' default) breaks scripts/py and /handoff silently.
+        with open(os.path.join(ROOT, ".gitattributes")) as f:
+            self.assertIn("eol=lf", f.read())
+        for dirpath, _, files in os.walk(os.path.join(ROOT, "skills")):
+            for name in files:
+                if name.endswith(".pyc"):
+                    continue
+                with open(os.path.join(dirpath, name), "rb") as f:
+                    self.assertNotIn(b"\r\n", f.read(), name)
+
+
 class MacCandidatesTest(unittest.TestCase):
     def test_macos_uses_osascript_with_escaped_prompt(self):
         sys.path.insert(0, SCRIPTS)

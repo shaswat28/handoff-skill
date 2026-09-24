@@ -1,5 +1,22 @@
 # DESIGN.md — running log
 
+## 2026-09-24 (night) — Windows line-ending bug
+
+**Broke.** The owner's first Windows install: `/handoff` showed nothing.
+Cause: Git for Windows' default `core.autocrlf=true` checked the files out
+with CRLF line endings. `sh` can't parse `scripts/py` with CRLF (`shift: not found`,
+`Syntax error: word unexpected`). The digest injection failed, and
+the invocation produced no output and no `handoff.md`. It was reproduced in
+the container by converting the installed skill to CRLF. The same run with LF
+wrote `handoff.md`.
+
+**Fixed.** `.gitattributes` with `* text=auto eol=lf`, a test that `skills/`
+contains no CRLF, and a README check plus re-clone steps.
+
+**Rejected.** Making `scripts/py` tolerate CRLF: a sh script can't guard
+against its own line endings. Stripping `\r` in `install.sh`: the PowerShell
+install path doesn't run it, and `.gitattributes` fixes the cause for both.
+
 ## 2026-09-24 (evening) — Windows support
 
 **Built.** `scripts/py`, a POSIX-sh wrapper that tries `python3`, then

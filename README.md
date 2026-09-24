@@ -44,6 +44,12 @@ New-Item -ItemType Directory -Force $HOME\.claude\skills | Out-Null
 Copy-Item -Recurse -Force $HOME\handoff-skill\skills\handoff $HOME\.claude\skills\
 ```
 
+If `/handoff` shows nothing, check that the files have Unix line endings.
+In PowerShell, this should print `False`:
+`(Get-Content -Raw $HOME\.claude\skills\handoff\scripts\py).Contains("`r")`.
+Clones made before `.gitattributes` was added have Windows line endings.
+Delete both folders and repeat the three steps above.
+
 Or in **Git Bash**: `cd ~/handoff-skill && ./install.sh`. Don't use `--link`
 on Windows. Git Bash's `ln -s` usually makes a copy rather than a real link.
 To update later, `git pull` in `~\handoff-skill` and run the copy step again.
