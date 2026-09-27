@@ -150,7 +150,8 @@ wezterm, alacritty, xfce4-terminal, x-terminal-emulator or xterm.
   unless skill sync is on. Use `--project` to commit the skill into a repo instead.
 - `!` injection can be turned off with `disableSkillShellExecution`. The skill
   then tells Claude to run the digest itself, which costs one extra tool call.
-- **Windows is untested on a real machine.** Tests simulated the Store
+- **Windows:** confirmed working on one real machine. Which way the new
+  session opened there wasn't recorded. Tests also simulated the Store
   `python3` placeholder, a missing Python, and backslash paths. Launching Windows
   Terminal / `cmd` has not been run for real.
 - The macOS, Windows and desktop Linux launch paths have **not been tested on

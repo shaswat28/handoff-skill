@@ -1,5 +1,12 @@
 # DESIGN.md — running log
 
+## 2026-09-27 — Windows confirmed
+
+The owner confirmed `/handoff` works on Windows after the `.gitattributes`
+LF fix. No code changes. The launch path used there, and the
+`CLAUDE_CODE_ENTRYPOINT` value in a local desktop-app session, are still
+unknown.
+
 ## 2026-09-24 (night) — Windows line-ending bug
 
 **Broke.** The owner's first Windows install: `/handoff` showed nothing.

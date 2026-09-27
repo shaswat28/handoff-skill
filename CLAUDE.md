@@ -23,12 +23,14 @@ End-to-end check (uses real tokens, about $0.11): make a temp git repo,
 `install.sh --project <it>`, run `claude -p "<small task>" --permission-mode acceptEdits`,
 then `claude -p "/handoff --no-launch" --continue …` in that repo, and inspect `handoff.md`.
 
-## Current state (2026-09-24)
+## Current state (2026-09-27)
 
 Working and verified end to end on Linux: injection, `${CLAUDE_SKILL_DIR}` /
 `${CLAUDE_SESSION_ID}` / `${CLAUDE_PROJECT_DIR}` substitution, and the handoff
-output. The launcher's macOS/Windows/desktop-Linux paths are **untested on real
-machines**. Only the tmux and fallback paths have been exercised.
+output. **The owner reports `/handoff` working on their Windows machine** after
+the LF fix. Which launch path ran there (Windows Terminal, cmd or paste mode)
+wasn't reported. macOS and desktop-Linux launching are still untested on real
+machines.
 
 ## Gotchas
 
