@@ -1,5 +1,64 @@
 # DESIGN.md — running log
 
+## 2026-09-27 (later) — context warnings, compaction hold, one-command installers
+
+**Built.**
+- `scripts/hooks.py`:
+  - A UserPromptSubmit hook warns once per chat at each threshold. The
+    defaults are 45%, the cheapest point to start fresh, and 70%, where long
+    chats get slower and less precise.
+  - A PreCompact hook (matcher `auto`) postpones the first automatic
+    compaction in a chat once.
+- `scripts/hooks_install.py` merges these into settings.json. It is
+  idempotent, keeps other hooks, makes a backup, and refuses invalid JSON.
+- `install.sh` now pulls first, installs the hooks, and takes new options.
+- New `install.ps1`: it pulls, finds a real Python, copies the skill, fixes
+  line endings to LF, and installs the hooks.
+- Both installers keep only the last 3 backups.
+- 7 new tests, 19 in total.
+
+**Owner's choices.** Two warnings rather than one: an early one around
+40–50%, which was chosen as 45, and a later one at 70. The owner uses Opus 5.5
+with a 1M window, so the install commands pass `--window 1000000`. The
+compaction hold is on by default.
+
+**How context is measured.** Claude Code gives the hook the chat's
+`transcript_path`. The hook reads the last 512KB of the log and sums the last
+assistant reply's `usage` fields: input, cache read, cache creation and
+output. The log has no window size (this chat's log only says
+`claude-opus-5-5`, which has 1M), so the window is a setting.
+
+**Verified.** In headless Claude Code sessions:
+- the warnings fired, only once, with one message when both thresholds were
+  crossed in one jump;
+- the model did not see the systemMessage, and it wasn't written to the chat
+  log, so there's no token cost;
+- PreCompact exit 2 blocked a real `/compact` ("Compaction blocked by PreCompact
+  hook: …");
+- the hook input includes `trigger`.
+
+The hook takes about 26 ms and 11 MB per run on a 1.4MB log.
+`install.ps1` was run under PowerShell 7.4 on Linux: CRLF files were fixed,
+`-Warn 45,70` was parsed correctly, a re-run didn't duplicate entries, and
+other hooks were kept.
+
+**Rejected.**
+- Reading the window size from the model name: the log only says
+  `claude-opus-5-5`, and the same name can mean different windows.
+- Configuring through settings.json `env`: it's unverified that it reaches
+  hook processes.
+- Watching continuously, for example with a background process or the
+  statusline: the owner was worried about constant resource and token use.
+  A per-message check costs nothing between messages. The statusline also
+  isn't shown in the desktop app.
+- Auto-reading `handoff.md` in new sessions (SessionStart hook): the owner
+  turned it down, because it could spend tokens unexpectedly.
+
+**Unverified.**
+- The hold on a real *automatic* compaction. Only manual was testable here.
+- How the desktop app shows systemMessage warnings.
+- `install.ps1` on Windows PowerShell 5.1. It was written for 5.1 but tested on 7.4.
+
 ## 2026-09-27 — Windows confirmed
 
 The owner confirmed `/handoff` works on Windows after the `.gitattributes`

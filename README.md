@@ -14,45 +14,91 @@ When a Claude Code chat gets long, type `/handoff`. The skill:
    `claude "Read handoff.md … summarize where things stand … wait for my go-ahead"`,
    so the fresh chat starts already reading the handoff.
 
-## Install
+## Install / update
 
 Requires Claude Code, `git`, and Python 3.8+ (standard library only). The
 skill finds whichever of `python3`, `python` or `py -3` works.
 
+Running the installer again is also how you **update**: it pulls the latest
+version first, reinstalls, and keeps the last 3 installs in
+`~/.claude/skill-backups/`.
+
+Set `--window` / `-Window` to your model's context window. Typing `/context`
+in Claude Code shows it (e.g. `191.9k / 1m`). The default is 200000.
+
+### macOS / Linux
+
 ```sh
-git clone https://github.com/shaswat28/handoff-skill.git
-cd handoff-skill
-./install.sh            # copies to ~/.claude/skills/handoff (all projects)
-./install.sh --link     # or symlink it, so `git pull` updates it
-./install.sh --project /path/to/repo   # or install for one repo only
+git clone https://github.com/shaswat28/handoff-skill.git ~/handoff-skill
+cd ~/handoff-skill && ./install.sh --window 1000000
 ```
 
-Restart Claude Code, then type `/handoff`.
+Later updates: `cd ~/handoff-skill && ./install.sh --window 1000000`.
+With `--link` (symlink instead of copy), a plain `git pull` is enough.
+`--project /path/to/repo` installs the skill for one repo only.
 
 ### Windows
 
-Claude Code on Windows uses Git Bash, which comes with Git for Windows. The
-skill's commands also run in that shell. You also need Python from
-[python.org](https://www.python.org/downloads/). Tick "Add python.exe to PATH"
-in the installer.
-
-In **PowerShell**:
+Claude Code on Windows uses Git Bash, which comes with Git for Windows. You
+also need Python from [python.org](https://www.python.org/downloads/). Tick
+"Add python.exe to PATH" in its installer. In **PowerShell**:
 
 ```powershell
 git clone https://github.com/shaswat28/handoff-skill.git $HOME\handoff-skill
-New-Item -ItemType Directory -Force $HOME\.claude\skills | Out-Null
-Copy-Item -Recurse -Force $HOME\handoff-skill\skills\handoff $HOME\.claude\skills\
+powershell -ExecutionPolicy Bypass -File $HOME\handoff-skill\install.ps1 -Window 1000000
 ```
 
-If `/handoff` shows nothing, check that the files have Unix line endings.
-In PowerShell, this should print `False`:
-`(Get-Content -Raw $HOME\.claude\skills\handoff\scripts\py).Contains("`r")`.
-Clones made before `.gitattributes` was added have Windows line endings.
-Delete both folders and repeat the three steps above.
+Later updates: run the second line again. `-ExecutionPolicy Bypass` is
+needed because Windows blocks downloaded scripts by default, and it applies
+only to that one run. The installer also converts any Windows (CRLF) line
+endings back to LF. CRLF line endings made `/handoff` fail silently on the
+first Windows install.
 
-Or in **Git Bash**: `cd ~/handoff-skill && ./install.sh`. Don't use `--link`
-on Windows. Git Bash's `ln -s` usually makes a copy rather than a real link.
-To update later, `git pull` in `~\handoff-skill` and run the copy step again.
+### Installer options
+
+| sh | PowerShell | Effect |
+|---|---|---|
+| `--window N` | `-Window N` | context window in tokens (default 200000) |
+| `--warn 45,70` | `-Warn 45,70` | warning thresholds, % of the window |
+| `--no-compact-hold` | `-NoCompactHold` | don't postpone the first auto-compaction |
+| `--no-hooks` | `-NoHooks` | skill only; removes the hooks if installed |
+| `--project DIR` | `-Project DIR` | install the skill into one repo (hooks stay global) |
+| `--link` | — | symlink instead of copy |
+
+Restart Claude Code (or the desktop app) after installing.
+
+## Context warnings
+
+The installer adds two hooks to `~/.claude/settings.json`. It backs the file
+up first, to `settings.json.handoff-bak`, and leaves your other settings and
+hooks alone.
+
+- **Warnings at 45% and 70%** of the context window, each shown once per chat.
+  45% is the cheapest point to start fresh. Every message re-sends the whole
+  chat, so each message costs more from there on. At 70%, long chats get slower
+  and less precise. If one jump crosses both, you only see the later warning.
+- **Compaction hold.** The first time Claude Code tries to compact a chat
+  automatically, the hook skips it once and tells you to run `/handoff` while
+  the whole chat is still in context. The next attempt goes through as normal.
+  `/compact` that you run yourself is never held.
+
+**Cost:** zero tokens. The hooks are small local scripts. Their messages go
+to you, not the model. That was checked in a real session: the model didn't
+see the warning, and it wasn't in the chat log. They run only when you send
+a message (or when compaction starts), take about 30 ms and 11 MB, and exit.
+Nothing runs between messages.
+
+**How they measure:** Claude Code passes each hook the path to that chat's
+own log. After every reply, the log records how many tokens the model
+processed, and the hook reads that number from the end of the log. The log
+doesn't record the window size, so it comes from `--window`.
+
+**Limits.** The warning checks when you *send* a message, so a long run of
+Claude working on its own can pass a threshold without a warning until your
+next message. If compaction triggers in the middle of such a run, the hold
+lasts only until Claude's next step. Blocking compaction was verified with
+`/compact` in a headless session. The hold on an automatic compaction, and
+how the desktop app displays the warnings, haven't been seen yet.
 
 ## Usage
 
@@ -74,9 +120,8 @@ A terminal window is the wrong place for the new chat when you work in the app,
 so the skill switches to paste mode instead. It copies the "read handoff.md"
 prompt to your clipboard, and you start a new session in the app on the same
 folder and paste it. The app is detected from the `CLAUDE_CODE_ENTRYPOINT`
-environment variable containing "desktop". That value isn't documented, so if
-you get a terminal window from the app anyway, use `/handoff --paste`.
-The skill prints the entrypoint it saw, so you can report it.
+environment variable containing "desktop". This worked on the Windows desktop
+app. If you ever get a terminal window from the app instead, use `/handoff --paste`.
 
 If no new terminal can be opened (Claude desktop/web app, SSH, VS Code's
 built-in terminal), the skill prints the `claude "…"` command and tries to copy
@@ -118,7 +163,10 @@ skills/handoff/
   scripts/digest.py    `context`: git + .md diffs + session index (injected at load)
                        `transcript`: condensed chat log (only after compaction)
   scripts/launch.py    opens a terminal running `claude "<prompt>"`, else prints + copies
-install.sh             copy/symlink into ~/.claude/skills or a project's .claude/skills
+  scripts/hooks.py     context warnings (UserPromptSubmit) and compaction hold (PreCompact)
+  scripts/hooks_install.py  adds/removes those hooks in settings.json
+install.sh             macOS/Linux install + update (git pull, copy/symlink, hooks)
+install.ps1            Windows install + update (git pull, copy, LF fix, hooks)
 tests/test_scripts.py  unit tests with a synthetic transcript and temp git repo
 ```
 
@@ -150,10 +198,11 @@ wezterm, alacritty, xfce4-terminal, x-terminal-emulator or xterm.
   unless skill sync is on. Use `--project` to commit the skill into a repo instead.
 - `!` injection can be turned off with `disableSkillShellExecution`. The skill
   then tells Claude to run the digest itself, which costs one extra tool call.
-- **Windows:** confirmed working on one real machine. Which way the new
-  session opened there wasn't recorded. Tests also simulated the Store
-  `python3` placeholder, a missing Python, and backslash paths. Launching Windows
-  Terminal / `cmd` has not been run for real.
+- **Windows:** confirmed working in the desktop app, which used paste mode.
+  Launching Windows Terminal / `cmd` from a terminal session hasn't been
+  run for real. `install.ps1` was tested under PowerShell 7 on Linux, not on
+  Windows PowerShell 5.1. Tests also simulated the Store
+  `python3` placeholder, a missing Python, and backslash paths.
 - The macOS, Windows and desktop Linux launch paths have **not been tested on
   real machines yet**. The macOS AppleScript commands and the fallback
   behaviour are covered by unit tests, but nothing has run on a real Mac.

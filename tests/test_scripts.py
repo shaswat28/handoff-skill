@@ -10,6 +10,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(ROOT, "skills", "handoff", "scripts")
 DIGEST = os.path.join(SCRIPTS, "digest.py")
 LAUNCH = os.path.join(SCRIPTS, "launch.py")
+HOOKS = os.path.join(SCRIPTS, "hooks.py")
+HOOKS_INSTALL = os.path.join(SCRIPTS, "hooks_install.py")
 SID = "11111111-2222-3333-4444-555555555555"
 
 
@@ -190,6 +192,111 @@ class MacCandidatesTest(unittest.TestCase):
             launch.main()
         self.assertIn("fake failed", out.getvalue())
         self.assertIn("NOT_LAUNCHED", out.getvalue())
+
+
+class HooksTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = {**os.environ, "CLAUDE_CONFIG_DIR": self.tmp.name}
+        self.log = os.path.join(self.tmp.name, "chat.jsonl")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def hook(self, event, session="s1", tokens=None, extra=(), stdin=None):
+        if tokens is not None:
+            with open(self.log, "a") as f:
+                f.write("x" * 100 + "\n")  # junk line, like a partial tail read
+                f.write(json.dumps({"type": "assistant", "message": {"usage": {
+                    "input_tokens": 1, "cache_read_input_tokens": tokens - 11,
+                    "cache_creation_input_tokens": 5, "output_tokens": 5}}}) + "\n")
+        payload = stdin if stdin is not None else json.dumps(
+            {"session_id": session, "transcript_path": self.log, "trigger": "auto"})
+        p = subprocess.run([sys.executable, HOOKS, event, *extra], input=payload,
+                           capture_output=True, text=True, env=self.env)
+        return p.returncode, p.stdout, p.stderr
+
+    def test_two_warnings_each_once(self):
+        args = ("--window", "1000", "--warn", "45,70")
+        self.assertEqual(self.hook("prompt", tokens=300, extra=args)[1], "")
+        code, out, _ = self.hook("prompt", tokens=500, extra=args)
+        self.assertEqual(code, 0)
+        self.assertIn("Cheapest point", json.loads(out)["systemMessage"])
+        self.assertEqual(self.hook("prompt", tokens=600, extra=args)[1], "")
+        msg = json.loads(self.hook("prompt", tokens=800, extra=args)[1])["systemMessage"]
+        self.assertIn("slower and less precise", msg)
+        self.assertIn("80% of context", msg)
+        self.assertEqual(self.hook("prompt", tokens=900, extra=args)[1], "")
+
+    def test_jump_past_both_shows_only_later_one(self):
+        args = ("--window", "1000", "--warn", "45,70")
+        out = self.hook("prompt", session="s2", tokens=900, extra=args)[1]
+        self.assertIn("slower", out)
+        self.assertEqual(self.hook("prompt", session="s2", tokens=950, extra=args)[1], "")
+        # A different chat gets its own warnings.
+        self.assertIn("slower", self.hook("prompt", session="s3", tokens=950, extra=args)[1])
+
+    def test_precompact_postpones_once(self):
+        code, _, err = self.hook("precompact")
+        self.assertEqual(code, 2)
+        self.assertIn("postponed once", err)
+        self.assertEqual(self.hook("precompact")[0], 0)
+        manual = json.dumps({"session_id": "m", "trigger": "manual"})
+        self.assertEqual(self.hook("precompact", stdin=manual)[0], 0)
+
+    def test_never_breaks_session(self):
+        self.assertEqual(self.hook("prompt", stdin="not json")[0], 0)
+        self.assertEqual(self.hook("prompt", extra=("--window", "abc"))[0], 0)
+        missing = json.dumps({"session_id": "x", "transcript_path": "/nope.jsonl"})
+        self.assertEqual(self.hook("prompt", stdin=missing), (0, "", ""))
+
+
+class HooksInstallTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.settings = os.path.join(self.tmp.name, "settings.json")
+        with open(self.settings, "w") as f:
+            json.dump({"model": "opus", "hooks": {"Stop": [{"hooks": [
+                {"type": "command", "command": "echo mine"}]}]}}, f)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_install(self, *args):
+        p = subprocess.run([sys.executable, HOOKS_INSTALL, *args, "--settings", self.settings],
+                           capture_output=True, text=True)
+        with open(self.settings) as f:
+            return p.returncode, json.load(f)
+
+    def test_install_is_idempotent_and_keeps_other_settings(self):
+        self.run_install("install", "--window", "1000000")
+        code, s = self.run_install("install", "--window", "1000000", "--warn", "40,65")
+        self.assertEqual(code, 0)
+        self.assertEqual(s["model"], "opus")
+        self.assertEqual(s["hooks"]["Stop"][0]["hooks"][0]["command"], "echo mine")
+        self.assertEqual(len(s["hooks"]["UserPromptSubmit"]), 1)
+        self.assertEqual(len(s["hooks"]["PreCompact"]), 1)
+        self.assertEqual(s["hooks"]["PreCompact"][0]["matcher"], "auto")
+        self.assertIn("--window 1000000 --warn 40,65", s["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"])
+        self.assertTrue(os.path.exists(self.settings + ".handoff-bak"))
+
+    def test_no_compact_hold_and_uninstall(self):
+        _, s = self.run_install("install", "--no-compact-hold")
+        self.assertNotIn("PreCompact", s["hooks"])
+        _, s = self.run_install("uninstall")
+        self.assertEqual(s["hooks"], {"Stop": [{"hooks": [{"type": "command", "command": "echo mine"}]}]})
+
+    def test_rejects_bad_input_without_touching_file(self):
+        with open(self.settings, "w") as f:
+            f.write("{broken")
+        p = subprocess.run([sys.executable, HOOKS_INSTALL, "install", "--settings", self.settings],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1)
+        with open(self.settings) as f:
+            self.assertEqual(f.read(), "{broken")
+        p = subprocess.run([sys.executable, HOOKS_INSTALL, "install", "--warn", "abc",
+                            "--settings", self.settings], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 2)
 
 
 if __name__ == "__main__":
