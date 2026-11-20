@@ -54,6 +54,15 @@ def section(title, body):
     print(body if body else "(none)")
 
 
+def display_path(f, cwd):
+    try:
+        if os.path.commonpath([cwd, os.path.abspath(f)]) == cwd:
+            return os.path.relpath(f, cwd)
+    except ValueError:
+        pass
+    return f
+
+
 # ------------------------------------------------------------ transcripts
 
 def projects_dir():
@@ -85,7 +94,9 @@ def load_entries(path):
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             try:
-                entries.append(json.loads(line))
+                entry = json.loads(line)
+                if entry.get("type") in ("user", "assistant", "system"):
+                    entries.append(entry)
             except ValueError:
                 continue
     return entries
@@ -110,14 +121,21 @@ def human_prompt(entry):
     if entry.get("type") != "user" or entry.get("isMeta") or entry.get("isSidechain") \
             or entry.get("isCompactSummary"):
         return None
+    content = (entry.get("message") or {}).get("content")
     texts = [b.get("text", "") for b in blocks(entry) if b.get("type") == "text"]
     if not texts or any(b.get("type") == "tool_result" for b in blocks(entry)):
         return None
+    texts = [t for t in texts if t.strip() and
+             (isinstance(content, str) or not t.strip().startswith(NOISE_PREFIXES))]
     text = "\n".join(texts).strip()
     m = re.search(r"<command-name>(.*?)</command-name>", text)
     if m:
         args = re.search(r"<command-args>(.*?)</command-args>", text, re.S)
         return f"{m.group(1)} {args.group(1).strip() if args else ''}".strip()
+    if not text:
+        return None
+    while text.startswith("<system-reminder>") and "</system-reminder>" in text:
+        text = text.split("</system-reminder>", 1)[1].lstrip()
     if not text or text.startswith(NOISE_PREFIXES):
         return None
     return text
@@ -180,14 +198,14 @@ def cmd_context(args):
         if path:
             idx = session_index(load_entries(path))
             p = idx["prompts"]
-            shown = p if len(p) <= 25 else p[:5] + [f"... ({len(p) - 25} prompts omitted) ..."] + p[-20:]
+            shown = list(enumerate(p, 1)) if len(p) <= 25 else list(enumerate(p[:5], 1)) + [(None, f"... ({len(p) - 25} prompts omitted) ...")] + list(enumerate(p[-20:], len(p) - 19))
             body = [f"transcript: {path}",
                     f"started: {idx['first_ts']}   human prompts: {len(p)}   "
                     f"compactions: {idx['compactions']}",
                     "", "User prompts, in order:"]
-            body += [f"{i + 1}. {clip(x, 220)}" for i, x in enumerate(shown)]
+            body += [f"{i}. {clip(x, 220)}" if i is not None else x for i, x in shown]
             body += ["", "Files edited this session (edit count):"]
-            body += [f"- {f} ({n})" for f, n in sorted(idx["edited"].items(), key=lambda kv: -kv[1])[:40]] \
+            body += [f"- {display_path(f, cwd)} ({n})" for f, n in sorted(idx["edited"].items(), key=lambda kv: -kv[1])[:40]] \
                 or ["- (none)"]
             if idx["errors"]:
                 body += ["", "Last tool errors (possible gotchas):"]

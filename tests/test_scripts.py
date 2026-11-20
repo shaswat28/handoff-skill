@@ -1,6 +1,7 @@
 """Tests for the /handoff skill scripts. Run: python3 -m unittest discover -s tests"""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -42,13 +43,15 @@ class DigestTest(unittest.TestCase):
         with open(os.path.join(self.repo, "handoff.md"), "w") as f:
             f.write("# Old handoff\n- open item: fix login\n")
 
-        # Folder name mirrors Claude Code's cwd encoding ("/" and "." -> "-").
-        tdir = os.path.join(self.cfg, "projects", self.repo.replace("/", "-").replace(".", "-"))
+        # Folder name mirrors Claude Code's cwd encoding independently.
+        tdir = os.path.join(self.cfg, "projects", re.sub(r"[^A-Za-z0-9]", "-", self.repo))
         os.makedirs(tdir)
         now = "2099-01-01T00:00:00Z"  # after the commit, so base = that commit
         entries = [
             {"type": "attachment", "attachment": {"type": "prompt_snapshot", "systemPrompt": ["x" * 5000]}},
-            {"type": "user", "timestamp": now, "message": {"role": "user", "content": "please add auth"}},
+            {"type": "user", "timestamp": now, "message": {"role": "user", "content": [
+                {"type": "text", "text": "<system-reminder>noise</system-reminder>"},
+                {"type": "text", "text": "please add auth"}]}},
             {"type": "assistant", "message": {"content": [
                 {"type": "thinking", "thinking": "SECRET_THOUGHT " * 100},
                 {"type": "text", "text": "Adding auth now."},
@@ -63,6 +66,8 @@ class DigestTest(unittest.TestCase):
                                                    "<command-args>focus on auth</command-args>"}},
             {"type": "user", "isMeta": True, "message": {"content": "meta noise"}},
         ]
+        entries.append({"type": "api-request-blob", "message": entries[2]["message"]})
+        entries.extend({"type": "user", "message": {"content": f"prompt {i}"}} for i in range(2, 30))
         with open(os.path.join(tdir, f"{SID}.jsonl"), "w") as f:
             for e in entries:
                 f.write(json.dumps(e) + "\n")
@@ -81,11 +86,40 @@ class DigestTest(unittest.TestCase):
         self.assertNotIn("meta noise", out)
         self.assertNotIn("summary of earlier", out)
         self.assertIn("/x/auth.py (1)", out)
+        self.assertEqual(out.count("ImportError: jwt"), 1)
         self.assertIn("ImportError: jwt", out)
         self.assertIn("+new line about auth", out)  # .md hunk, not just a stat
         self.assertIn("open item: fix login", out)  # previous handoff carried forward
         self.assertNotIn("BIG_OUTPUT", out)
         self.assertNotIn("SECRET_THOUGHT", out)
+        self.assertIn("30. prompt 29", out)
+        self.assertIn("... (5 prompts omitted) ...", out)
+
+    def test_prompt_after_system_reminder_string(self):
+        sys.path.insert(0, SCRIPTS)
+        import digest
+        e = {"type": "user", "message": {"content": "<system-reminder>noise</system-reminder> actual prompt"}}
+        self.assertEqual(digest.human_prompt(e), "actual prompt")
+
+    def test_edited_paths_inside_cwd_are_relative(self):
+        with open(os.path.join(self.repo, "inside.py"), "w") as f:
+            f.write("x")
+        tdir = os.path.join(self.cfg, "projects", re.sub(r"[^A-Za-z0-9]", "-", self.repo))
+        path = os.path.join(tdir, f"{SID}.jsonl")
+        with open(path, "a") as f:
+            f.write(json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "inside", "name": "Edit",
+                 "input": {"file_path": os.path.join(self.repo, "inside.py")}}]}}) + "\n")
+        _, out = run([DIGEST, "context", "--session", SID, "--cwd", self.repo], self.env)
+        self.assertIn("- inside.py (1)", out)
+
+    def test_display_path_keeps_path_on_another_drive(self):
+        sys.path.insert(0, SCRIPTS)
+        import digest
+        from unittest import mock
+        path = "D:\\notes\\draft.md"
+        with mock.patch.object(digest.os.path, "commonpath", side_effect=ValueError("Paths don't have the same drive")):
+            self.assertEqual(digest.display_path(path, "C:\\project"), path)
 
     def test_session_fallback_by_cwd(self):
         # Unexpanded placeholder must fall back to the newest transcript for the cwd.

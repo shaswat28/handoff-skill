@@ -1,5 +1,30 @@
 # DESIGN.md — running log
 
+## 2026-11-20 — digest parsing fixes from a real desktop-app session
+
+**Broke.** Running `digest.py context` on a real Claude desktop-app session
+showed that the first user prompt (the session's goal) was missing, that files
+edited twice were counted 4 times, and that `test_session_fallback_by_cwd`
+failed on macOS.
+
+**Causes and fixes.**
+- The first message had a `<system-reminder>` text block before the user's
+  text, and noise was checked on the joined text. It is now checked per block.
+  For string content, leading `<system-reminder>…</system-reminder>` segments
+  are stripped.
+- New `api-request-blob` log entries duplicate message content. Only `user`,
+  `assistant` and `system` entries are loaded now.
+- The test fixture encoded cwd by replacing only `/` and `.`, but macOS temp
+  paths contain `_`. The fixture now uses the full rule.
+- Past 25 prompts, the numbers after the "omitted" marker were wrong. Prompts
+  keep their real numbers now.
+- Edited paths inside the project are shown relative to it (fewer tokens),
+  with a guard for Windows paths on another drive.
+
+**Verified.** Unit tests, each regression test seen failing first, plus the
+digest re-run on the same real session: 3 prompts including the first, and
+correct edit counts. Implemented by Codex (gpt-6-luna, high), reviewed here.
+
 ## 2026-09-27 (later) — context warnings, compaction hold, one-command installers
 
 **Built.**

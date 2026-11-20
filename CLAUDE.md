@@ -20,7 +20,7 @@ digest and launches a fresh session to read it. See README.md for usage.
 ## Commands
 
 ```sh
-python3 -m unittest discover -s tests -v    # 19 tests, ~2s
+python3 -m unittest discover -s tests -v    # ~22 tests, ~2s
 ./install.sh --link --window 1000000        # dev install/update: symlink + hooks
 CLAUDE_CONFIG_DIR=$(mktemp -d) ./install.sh # try the installer without touching ~/.claude
 ```
@@ -30,14 +30,18 @@ github.com/PowerShell/PowerShell/releases (`pwsh -NoProfile -File install.ps1`).
 Windows ships PowerShell 5.1, so keep the script free of 7-only syntax
 (`??`, `?:`, `&&`, `||`).
 
-```sh
-```
-
 End-to-end check (uses real tokens, about $0.11): make a temp git repo,
 `install.sh --project <it>`, run `claude -p "<small task>" --permission-mode acceptEdits`,
 then `claude -p "/handoff --no-launch" --continue …` in that repo, and inspect `handoff.md`.
 
-## Current state (2026-09-27)
+## Current state (2026-11-20)
+
+Branch `fix/digest-log-parsing`: digest fixes for the first prompt being
+dropped, `api-request-blob` double counting, prompt numbering past 25, and
+cwd-relative edited paths. The owner's installed copy predates the hooks;
+re-run the installer after merging.
+
+### Earlier (2026-09-27)
 
 Context warnings (45% / 70%) and the compaction hold were added this session,
 and verified in headless Claude Code sessions (see DESIGN.md). They haven't
@@ -100,6 +104,16 @@ desktop-Linux launching are still untested on real machines.
   would receive "45 70". `install.ps1` declares `[string[]]` and joins with commas.
 - **Don't set `$ErrorActionPreference = "Stop"` in install.ps1.** In
   Windows PowerShell 5.1 it turns native stderr (git, python) into fatal errors.
+- **Real prompts can start with a `<system-reminder>` block.** Claude Code
+  (the desktop app especially) puts injected context in a text block before
+  the user's own text in the same message. Filter noise per block, never on
+  the joined text, or the session's first prompt (usually the goal) is lost.
+- **Logs contain non-message entries that repeat content.** `api-request-blob`
+  entries carry a copy of message content, so reading every line doubled edit
+  counts and errors. `load_entries` keeps only `user` / `assistant` / `system`.
+- **Tests must encode cwd the way Claude Code does** (every non-alphanumeric
+  becomes `-`). macOS temp paths contain `_`; a fixture that replaced only `/`
+  and `.` failed there.
 - **`section()` must not `strip()` leading spaces.** Stripping them
   corrupted the first `git status --short` line (` M` became `M`).
 - **The template's outer fence in SKILL.md is four backticks.** It contains
