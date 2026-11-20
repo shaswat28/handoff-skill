@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Open a new terminal in DIR running `claude "<prompt>"`.
 
-  launch.py --cwd DIR [--prompt TEXT] [--mode auto|terminal|paste] [--dry-run]
+  launch.py --cwd DIR [--file PATH] [--prompt TEXT] [--mode auto|terminal|paste] [--dry-run]
 
 `claude "<prompt>"` starts an interactive session with the prompt already
-submitted, so the new chat starts reading handoff.md right away. If no
+submitted, so the new chat starts reading the handoff right away. If no
 terminal can be opened (Claude desktop/web app, SSH, CI), the command is
 printed and copied to the clipboard instead. Always exits 0.
 
@@ -21,7 +21,7 @@ import subprocess
 import sys
 
 DEFAULT_PROMPT = (
-    "Read handoff.md in this folder: it is the handoff from the previous Claude session. "
+    "Read {file} in this folder: it is the handoff from the previous Claude session. "
     "Also read CLAUDE.md if it exists. Verify anything that looks stale against the code "
     "(git status, the files it names). Then give me a short summary of where things stand "
     "and what you plan to do next, and wait for my go-ahead before changing anything."
@@ -115,21 +115,25 @@ def copy_to_clipboard(text):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cwd", default=os.getcwd())
-    ap.add_argument("--prompt", default=DEFAULT_PROMPT)
+    ap.add_argument("--file", default="handoff.md", help="handoff path relative to cwd")
+    ap.add_argument("--prompt")
     ap.add_argument("--mode", choices=["auto", "terminal", "paste"], default="auto")
     ap.add_argument("--dry-run", action="store_true", help="print what would run, launch nothing")
     args = ap.parse_args()
     cwd = os.path.abspath(args.cwd)
+    prompt = DEFAULT_PROMPT.format(file=args.file) if args.prompt is None else args.prompt
 
     if args.mode == "paste" or (args.mode == "auto" and is_desktop_app()):
-        return paste_mode(cwd, args.prompt, args.dry_run)
+        return paste_mode(cwd, prompt, args.dry_run)
 
     if not shutil.which("claude"):
         print("WARNING: `claude` is not on PATH here; the new terminal may not find it either.")
 
-    for label, argv in candidates(cwd, args.prompt):
+    for label, argv in candidates(cwd, prompt):
         if args.dry_run:
             print(f"[dry-run] would launch via {label}: {argv}")
             return
@@ -154,19 +158,21 @@ def main():
                 print("  macOS blocked automation: allow it in System Settings → Privacy & Security "
                       "→ Automation (let your terminal control Terminal/iTerm2), then retry.")
 
-    cmd = sh_command(cwd, args.prompt)
+    cmd = sh_command(cwd, prompt)
     clip = None if args.dry_run else copy_to_clipboard(cmd)
     print("NOT_LAUNCHED: could not open a new terminal from here.")
     print(f"Clipboard: {'copied via ' + clip if clip else 'unavailable'}")
     print("Run this in a new terminal:\n")
     print(cmd)
     print("\nOr, to reuse this terminal: type /clear, then paste this prompt:\n")
-    print(args.prompt)
+    print(prompt)
 
 
 if __name__ == "__main__":
     try:
         main()
+    except SystemExit:
+        pass
     except Exception as ex:
         print(f"(launch.py failed: {ex})")
     sys.exit(0)

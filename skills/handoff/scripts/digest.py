@@ -16,15 +16,20 @@ import os
 import re
 import subprocess
 import sys
+from collections import deque
 from datetime import datetime
+from pathlib import Path
 
 HANDOFF_NAME = "handoff.md"
+HANDOFF_DIR = ".handoff"
 KEY_DOCS = ["CLAUDE.md", "AGENTS.md", "README.md", "DESIGN.md", "TODO.md",
             "CHANGELOG.md", "CONTRIBUTING.md", HANDOFF_NAME]
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # Harness-injected pseudo-prompts that are not things the human typed.
 NOISE_PREFIXES = ("<system-reminder>", "<local-command-stdout>", "<local-command-stderr>",
-                  "<command-message>", "Caveat:", "[Request interrupted")
+                  "<command-message>", "Caveat:", "[Request interrupted",
+                  "<task-notification>", "<bash-input>", "<bash-stdout>",
+                  "<bash-stderr>", "<ci-monitor-event>")
 
 
 # ---------------------------------------------------------------- helpers
@@ -32,7 +37,7 @@ NOISE_PREFIXES = ("<system-reminder>", "<local-command-stdout>", "<local-command
 def git(args, cwd, limit=None):
     try:
         out = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                             text=True, timeout=30).stdout
+                             encoding="utf-8", errors="replace", timeout=30).stdout
     except Exception:
         return ""
     out = out.rstrip("\n")
@@ -54,6 +59,15 @@ def section(title, body):
     print(body if body else "(none)")
 
 
+def display_path(f, cwd):
+    try:
+        if os.path.commonpath([cwd, os.path.abspath(f)]) == cwd:
+            return os.path.relpath(f, cwd)
+    except ValueError:
+        pass
+    return f
+
+
 # ------------------------------------------------------------ transcripts
 
 def projects_dir():
@@ -67,10 +81,15 @@ def encode_cwd(cwd):
     return re.sub(r"[^A-Za-z0-9]", "-", cwd)
 
 
+def resolved_session_id(session_id):
+    sid = (session_id or "").strip()
+    return sid if "$" not in sid and "{" not in sid else ""
+
+
 def find_transcript(session_id, cwd):
     root = projects_dir()
-    sid = (session_id or "").strip()
-    if sid and "$" not in sid and "{" not in sid:  # ignore unexpanded placeholders
+    sid = resolved_session_id(session_id)
+    if sid:
         hits = glob.glob(os.path.join(root, "*", f"{sid}.jsonl"))
         if hits:
             return max(hits, key=os.path.getmtime)
@@ -85,7 +104,9 @@ def load_entries(path):
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             try:
-                entries.append(json.loads(line))
+                entry = json.loads(line)
+                if entry.get("type") in ("user", "assistant", "system"):
+                    entries.append(entry)
             except ValueError:
                 continue
     return entries
@@ -110,14 +131,23 @@ def human_prompt(entry):
     if entry.get("type") != "user" or entry.get("isMeta") or entry.get("isSidechain") \
             or entry.get("isCompactSummary"):
         return None
+    if (entry.get("origin") or {}).get("kind") not in (None, "human"):
+        return None
+    content = (entry.get("message") or {}).get("content")
     texts = [b.get("text", "") for b in blocks(entry) if b.get("type") == "text"]
     if not texts or any(b.get("type") == "tool_result" for b in blocks(entry)):
         return None
+    texts = [t for t in texts if t.strip() and
+             (isinstance(content, str) or not t.strip().startswith(NOISE_PREFIXES))]
     text = "\n".join(texts).strip()
     m = re.search(r"<command-name>(.*?)</command-name>", text)
     if m:
         args = re.search(r"<command-args>(.*?)</command-args>", text, re.S)
         return f"{m.group(1)} {args.group(1).strip() if args else ''}".strip()
+    if not text:
+        return None
+    while text.startswith("<system-reminder>") and "</system-reminder>" in text:
+        text = text.split("</system-reminder>", 1)[1].lstrip()
     if not text or text.startswith(NOISE_PREFIXES):
         return None
     return text
@@ -141,58 +171,98 @@ def result_text(block):
 
 def session_index(entries):
     prompts, edited, errors, compactions, summaries = [], {}, [], 0, 0
+    recent_text, recent_tools = deque(maxlen=3), deque(maxlen=10)
+    has_boundary = any(is_compaction(e) for e in entries if not e.get("isSidechain"))
     tool_names = {}
     first_ts = None
     for e in entries:
         if e.get("isSidechain"):
             continue
         first_ts = first_ts or e.get("timestamp")
-        if is_compaction(e):
-            compactions += 1
-        summaries += bool(e.get("isCompactSummary"))
+        boundary = is_compaction(e)
+        summary = bool(e.get("isCompactSummary"))
+        compactions += boundary
+        summaries += summary
+        if boundary or (summary and not has_boundary):
+            recent_text.clear()
+            recent_tools.clear()
         p = human_prompt(e)
         if p:
             prompts.append(p)
         for b in blocks(e):
             if b.get("type") == "tool_use":
-                tool_names[b.get("id")] = tool_label(b)
+                label = tool_label(b)
+                tool_names[b.get("id")] = label
+                if e.get("type") == "assistant":
+                    recent_tools.append(label)
                 inp = b.get("input") or {}
                 path = inp.get("file_path") or inp.get("notebook_path")
                 if b.get("name") in EDIT_TOOLS and path:
                     edited[path] = edited.get(path, 0) + 1
             elif b.get("type") == "tool_result" and b.get("is_error"):
                 errors.append((tool_names.get(b.get("tool_use_id"), "?"), result_text(b)))
+            elif e.get("type") == "assistant" and b.get("type") == "text" and b.get("text", "").strip():
+                recent_text.append(clip(b["text"], 300))
     return {"prompts": prompts, "edited": edited, "errors": errors,
-            "compactions": compactions or summaries, "first_ts": first_ts}
+            "compactions": compactions or summaries, "first_ts": first_ts,
+            "recent_text": recent_text, "recent_tools": recent_tools}
 
 
 # ----------------------------------------------------------------- context
 
+def prepare_handoff(cwd, session_id, now):
+    sid = resolved_session_id(session_id)[:8]
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
+        sid = "session"
+    directory = Path(cwd, HANDOFF_DIR)
+    try:
+        directory.mkdir(exist_ok=True)
+        with (directory / ".gitignore").open("x", encoding="utf-8", newline="\n") as f:
+            f.write("*\n")
+    except OSError:
+        # The ignore file may already exist, or the project may be read-only.
+        pass
+    stem = f"{now:%Y%m%d-%H%M}-{sid}"
+    target = f"{HANDOFF_DIR}/{stem}.md"
+    suffix = 2
+    while os.path.lexists(os.path.join(cwd, target)):
+        target = f"{HANDOFF_DIR}/{stem}-{suffix}.md"
+        suffix += 1
+    return target
+
+
 def cmd_context(args):
     cwd = os.path.abspath(args.cwd)
+    now = datetime.now()
+    target = prepare_handoff(cwd, args.session, now)
     print(f"# Handoff digest — {os.path.basename(cwd)}")
-    print(f"cwd: {cwd}   generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"cwd: {cwd}   generated: {now:%Y-%m-%d %H:%M}")
+    print(f"Handoff target: {target}")
 
-    # --- session index (cheap: only prompts, edited paths, errors)
+    # --- session index and capped activity after compaction
     idx = None
     try:
         path = find_transcript(args.session, cwd)
         if path:
             idx = session_index(load_entries(path))
             p = idx["prompts"]
-            shown = p if len(p) <= 25 else p[:5] + [f"... ({len(p) - 25} prompts omitted) ..."] + p[-20:]
+            shown = list(enumerate(p, 1)) if len(p) <= 25 else list(enumerate(p[:5], 1)) + [(None, f"... ({len(p) - 25} prompts omitted) ...")] + list(enumerate(p[-20:], len(p) - 19))
             body = [f"transcript: {path}",
                     f"started: {idx['first_ts']}   human prompts: {len(p)}   "
                     f"compactions: {idx['compactions']}",
                     "", "User prompts, in order:"]
-            body += [f"{i + 1}. {clip(x, 220)}" for i, x in enumerate(shown)]
+            body += [f"{i}. {clip(x, 220)}" if i is not None else x for i, x in shown]
             body += ["", "Files edited this session (edit count):"]
-            body += [f"- {f} ({n})" for f, n in sorted(idx["edited"].items(), key=lambda kv: -kv[1])[:40]] \
+            body += [f"- {display_path(f, cwd)} ({n})" for f, n in sorted(idx["edited"].items(), key=lambda kv: -kv[1])[:40]] \
                 or ["- (none)"]
             if idx["errors"]:
                 body += ["", "Last tool errors (possible gotchas):"]
                 body += [f"- {clip(t, 80)} → {clip(r, 200)}" for t, r in idx["errors"][-6:]]
             section("Session index", "\n".join(body))
+            if idx["compactions"]:
+                activity = [f"- Claude: {text}" for text in idx["recent_text"]]
+                activity += [f"- Tool: {label}" for label in idx["recent_tools"]]
+                section("Last activity", "\n".join(activity))
         else:
             section("Session index", f"No transcript found under {projects_dir()} for this cwd.")
     except Exception as ex:
@@ -201,7 +271,7 @@ def cmd_context(args):
     # --- git
     if git(["rev-parse", "--is-inside-work-tree"], cwd) != "true":
         section("Git", "Not a git repository.")
-        return print_docs(cwd, None)
+        return print_docs(cwd, None, target)
 
     branch = git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
     upstream = git(["rev-parse", "--abbrev-ref", "@{upstream}"], cwd)
@@ -210,8 +280,18 @@ def cmd_context(args):
     if ahead_behind:
         behind, ahead = ahead_behind.split()
         head.append(f"ahead {ahead} / behind {behind} (unpushed commits: {ahead})")
+    if upstream:
+        commits = git(["log", "--oneline", "-15", "@{u}..HEAD"], cwd)
+        if commits:
+            head += ["", "Unpushed commits:", commits]
+    git_root = git(["rev-parse", "--show-toplevel"], cwd) or cwd
+    untracked = git(["ls-files", "--others", "--exclude-standard"], cwd).splitlines()
+    if untracked:
+        head += ["", "Untracked files:", *untracked[:30]]
+        if len(untracked) > 30:
+            head.append(f"+{len(untracked) - 30} more")
     section("Git", "\n".join(head))
-    section("Working tree (git status --short)", git(["status", "--short"], cwd, limit=40))
+    section("Working tree (git status --short)", git(["status", "--short", "--untracked-files=no"], cwd, limit=40))
 
     # Base = last commit before this session started; else merge-base with default branch.
     base, base_why = None, ""
@@ -234,29 +314,51 @@ def cmd_context(args):
     else:
         section("Recent commits", git(["log", "--oneline", "--no-decorate", "-15"], cwd))
         section("Uncommitted diffstat", git(["diff", "--stat=100", "HEAD"], cwd, limit=45))
-    print_docs(cwd, base or "HEAD")
+    print_docs(cwd, base or "HEAD", target)
 
 
-def print_docs(cwd, base):
+def print_docs(cwd, base, target=None):
     # Key docs: presence and size only, so Claude can decide what to open.
     rows = []
+    git_root = os.path.realpath(git(["rev-parse", "--show-toplevel"], cwd) or cwd)
+    cwd_real = os.path.realpath(cwd)
     for name in KEY_DOCS:
-        p = os.path.join(cwd, name)
-        if os.path.isfile(p):
+        candidates = [os.path.join(cwd, name)]
+        root_candidate = os.path.join(git_root, name)
+        if os.path.abspath(root_candidate) != os.path.abspath(candidates[0]):
+            candidates.append(root_candidate)
+        for p in candidates:
+            if not os.path.isfile(p):
+                continue
             with open(p, encoding="utf-8", errors="replace") as f:
                 n = sum(1 for _ in f)
             mtime = datetime.fromtimestamp(os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M")
-            rows.append(f"- {name}: {n} lines, modified {mtime}")
+            rows.append(f"- {os.path.relpath(os.path.realpath(p), cwd_real)}: {n} lines, modified {mtime}")
+            break
     section("Key docs present", "\n".join(rows))
 
-    if not base:
-        return
+    if base:
+        git_root = git(["rev-parse", "--show-toplevel"], cwd) or cwd
+        print_markdown_changes(git_root, base)
+
+    target_path = os.path.normpath(os.path.join(cwd, target)) if target else None
+    candidates = [path for path in glob.glob(os.path.join(cwd, HANDOFF_DIR, "*.md"))
+                  if path != target_path and os.path.isfile(path)]
+    prev = max(candidates, key=os.path.getmtime) if candidates else os.path.join(cwd, HANDOFF_NAME)
+    if os.path.isfile(prev):
+        with open(prev, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+        body = "\n".join(lines[:80]) + (f"\n... ({len(lines) - 80} more lines)" if len(lines) > 80 else "")
+        section(f"Previous handoff ({os.path.relpath(prev, cwd)}; carry forward anything still open)", body)
+
+
+def print_markdown_changes(cwd, base):
     # Markdown diffs are the densest signal of intent, so show the actual
     # hunks (capped), not just a stat. The old handoff is shown separately.
     changed = [f for f in git(["diff", "--name-only", base, "--", "*.md", "*.mdx"], cwd).splitlines()
-               if os.path.basename(f) != HANDOFF_NAME]
+               if os.path.basename(f) != HANDOFF_NAME and f.split("/")[0] != HANDOFF_DIR]
     untracked = [f for f in git(["ls-files", "--others", "--exclude-standard", "--", "*.md", "*.mdx"], cwd).splitlines()
-                 if os.path.basename(f) != HANDOFF_NAME]
+                 if os.path.basename(f) != HANDOFF_NAME and f.split("/")[0] != HANDOFF_DIR]
     out, total = [], 0
     for f in changed[:12]:
         d = git(["diff", "-U1", base, "--", f], cwd).splitlines()
@@ -272,13 +374,6 @@ def print_docs(cwd, base):
     if untracked:
         out.append("New untracked .md files: " + ", ".join(untracked[:20]))
     section("Markdown changes since base", "\n".join(out))
-
-    prev = os.path.join(cwd, HANDOFF_NAME)
-    if os.path.isfile(prev):
-        with open(prev, encoding="utf-8", errors="replace") as f:
-            lines = f.read().splitlines()
-        body = "\n".join(lines[:80]) + (f"\n... ({len(lines) - 80} more lines)" if len(lines) > 80 else "")
-        section("Previous handoff.md (carry forward anything still open)", body)
 
 
 # -------------------------------------------------------------- transcript
@@ -323,6 +418,8 @@ def cmd_transcript(args):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("context", "transcript"):
@@ -340,4 +437,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        pass
+    except Exception as ex:
+        print(f"(digest.py failed: {ex})")
+    sys.exit(0)

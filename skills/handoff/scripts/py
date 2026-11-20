@@ -5,7 +5,8 @@
 # the Microsoft Store placeholder, so each candidate is tested before use.
 # Exits 0 even when nothing is found: a failing !`command` aborts /handoff.
 dir=$(dirname "$0")
-script="$1"
+script="${1-}"
+[ -f "$dir/$script" ] || exit 0
 shift
 for py in python3 python "py -3"; do
   # $py is unquoted on purpose so "py -3" splits into command + flag.

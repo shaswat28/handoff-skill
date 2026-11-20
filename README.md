@@ -3,15 +3,17 @@
 When a Claude Code chat gets long, type `/handoff`. The skill:
 
 1. Builds a small digest of what matters: git state, commits and diffstat
-   since this session started, the actual diffs of changed `.md` files, the
-   previous `handoff.md`, and an index of the chat log (your prompts in order,
-   files edited, tool errors hit). All of it is size-capped.
-2. Has Claude write `handoff.md` in the project root: TL;DR, goal, state of
+   since this session started, untracked files and unpushed commits, the actual
+   diffs of changed `.md` files, the previous handoff, and an index of the chat
+   log (your prompts in order, files edited, tool errors hit). All of it is
+   size-capped.
+2. Has Claude write a new handoff file, `.handoff/<date>-<time>-<session>.md`:
+   TL;DR, goal, state of
    play, next steps, decisions (including rejected options), gotchas, key files,
    open questions, and how to verify. If the project keeps `CLAUDE.md` /
    `DESIGN.md` / `README.md`, lasting facts go there instead.
 3. Opens a **new terminal in the same folder** running
-   `claude "Read handoff.md … summarize where things stand … wait for my go-ahead"`,
+   `claude "Read .handoff/… summarize where things stand … wait for my go-ahead"`,
    so the fresh chat starts already reading the handoff.
 
 ## Install / update
@@ -23,17 +25,21 @@ Running the installer again is also how you **update**: it pulls the latest
 version first, reinstalls, and keeps the last 3 installs in
 `~/.claude/skill-backups/`.
 
-Set `--window` / `-Window` to your model's context window. Typing `/context`
-in Claude Code shows it (e.g. `191.9k / 1m`). The default is 200000.
+A plain install adds only the `/handoff` skill and doesn't touch
+`settings.json`. The [context-warning hooks](#context-warnings-optional) are
+opt-in: add `--hooks` (or any hook option such as `--window`). Set
+`--window` / `-Window` to your model's context window. Typing `/context` in
+Claude Code shows it (e.g. `191.9k / 1m`). The default is 200000.
 
 ### macOS / Linux
 
 ```sh
 git clone https://github.com/shaswat28/handoff-skill.git ~/handoff-skill
-cd ~/handoff-skill && ./install.sh --window 1000000
+cd ~/handoff-skill && ./install.sh                 # skill only
+./install.sh --hooks --window 1000000              # optional: add the hooks
 ```
 
-Later updates: `cd ~/handoff-skill && ./install.sh --window 1000000`.
+Later updates: run `./install.sh` again (add `--hooks …` if you use the hooks).
 With `--link` (symlink instead of copy), a plain `git pull` is enough.
 `--project /path/to/repo` installs the skill for one repo only.
 
@@ -45,8 +51,10 @@ also need Python from [python.org](https://www.python.org/downloads/). Tick
 
 ```powershell
 git clone https://github.com/shaswat28/handoff-skill.git $HOME\handoff-skill
-powershell -ExecutionPolicy Bypass -File $HOME\handoff-skill\install.ps1 -Window 1000000
+powershell -ExecutionPolicy Bypass -File $HOME\handoff-skill\install.ps1
 ```
+
+Add `-Hooks -Window 1000000` to also install the hooks.
 
 Later updates: run the second line again. `-ExecutionPolicy Bypass` is
 needed because Windows blocks downloaded scripts by default, and it applies
@@ -58,18 +66,20 @@ first Windows install.
 
 | sh | PowerShell | Effect |
 |---|---|---|
+| `--hooks` | `-Hooks` | install or update the context-warning hooks |
 | `--window N` | `-Window N` | context window in tokens (default 200000) |
 | `--warn 45,70` | `-Warn 45,70` | warning thresholds, % of the window |
 | `--no-compact-hold` | `-NoCompactHold` | don't postpone the first auto-compaction |
-| `--no-hooks` | `-NoHooks` | skill only; removes the hooks if installed |
+| `--notify` | — | also show the warnings as macOS notifications |
+| `--no-hooks` | `-NoHooks` | remove previously installed hooks |
 | `--project DIR` | `-Project DIR` | install the skill into one repo (hooks stay global) |
 | `--link` | — | symlink instead of copy |
 
 Restart Claude Code (or the desktop app) after installing.
 
-## Context warnings
+## Context warnings (optional)
 
-The installer adds two hooks to `~/.claude/settings.json`. It backs the file
+With `--hooks`, the installer adds two hooks to `~/.claude/settings.json`. It backs the file
 up first, to `settings.json.handoff-bak`, and leaves your other settings and
 hooks alone.
 
@@ -103,9 +113,9 @@ how the desktop app displays the warnings, haven't been seen yet.
 ## Usage
 
 ```
-/handoff                          # write handoff.md, open a new session
+/handoff                          # write a handoff, open a new session
 /handoff focus on the auth bug    # weight the handoff toward something
-/handoff --no-launch              # write handoff.md only
+/handoff --no-launch              # write the handoff only
 /handoff --paste                  # copy the prompt instead of opening a terminal
 /handoff --terminal               # force a terminal window (e.g. from the desktop app)
 ```
@@ -117,7 +127,7 @@ Code on your machine, so they load `~/.claude/skills`. It doesn't work in the
 regular **Chat** tab, which has no access to your project folder or git.
 
 A terminal window is the wrong place for the new chat when you work in the app,
-so the skill switches to paste mode instead. It copies the "read handoff.md"
+so the skill switches to paste mode instead. It copies the "read the handoff"
 prompt to your clipboard, and you start a new session in the app on the same
 folder and paste it. The app is detected from the `CLAUDE_CODE_ENTRYPOINT`
 environment variable containing "desktop". This worked on the Windows desktop
@@ -128,8 +138,11 @@ built-in terminal), the skill prints the `claude "…"` command and tries to cop
 it to your clipboard. You can also type `/clear` in the same terminal and paste
 the printed prompt.
 
-`handoff.md` holds the state of one session and is not committed automatically.
-Add it to your project's `.gitignore` if you don't want it to show up in `git status`.
+Each `/handoff` writes a new file in `.handoff/`, named by time and session, so
+two sessions in one repo never overwrite each other. The folder holds its own
+`.gitignore` (`*`), so it stays out of `git status` without touching yours. The
+next handoff carries forward open items from the newest previous one (or from
+an old root `handoff.md`).
 
 ## How it keeps token use low
 
@@ -150,7 +163,7 @@ Add it to your project's `.gitignore` if you don't want it to show up in `git st
   (about 7.5k tokens) and keeps 25% from the start and 75% from the end.
 
 Measured: an end-to-end `/handoff --no-launch` on a small repo took 2 model
-turns and one tool call, the write of `handoff.md`. It cost $0.11 on a
+turns and one tool call, the write of the handoff file. It cost $0.11 on a
 fresh session, and most of that was the system prompt. On a long session,
 expect the cost to be dominated by the context the chat already holds.
 
@@ -203,10 +216,13 @@ wezterm, alacritty, xfce4-terminal, x-terminal-emulator or xterm.
   run for real. `install.ps1` was tested under PowerShell 7 on Linux, not on
   Windows PowerShell 5.1. Tests also simulated the Store
   `python3` placeholder, a missing Python, and backslash paths.
-- The macOS, Windows and desktop Linux launch paths have **not been tested on
-  real machines yet**. The macOS AppleScript commands and the fallback
-  behaviour are covered by unit tests, but nothing has run on a real Mac.
-  Please report what happens on yours.
+- **macOS:** the digest, paste mode (desktop app, `CLAUDE_CODE_ENTRYPOINT=claude-desktop`),
+  the launcher dry run and the hooks under a minimal `PATH` have run on a real
+  Mac (macOS 27). A real Terminal.app launch hasn't been run yet. On macOS
+  and Linux the hooks run through `scripts/py`, so upgrading or removing a
+  Python install doesn't break them.
+- The Windows and desktop Linux terminal-launch paths have **not been tested
+  on real machines yet**.
 - Compaction is detected from `compact_boundary` / `isCompactSummary` entries.
   Those names come from what the logs look like in practice, not from a
   documented format, so a future Claude Code version could change them.

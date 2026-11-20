@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Write handoff.md capturing what matters in this codebase and what was done this session (from git, changed .md files and the chat log, cheaply), then open a fresh Claude Code session in the same folder that reads it.
+description: Write a session handoff under .handoff/ from the conversation and a compact digest, then open a fresh Claude Code session in the same folder to read it.
 argument-hint: "[focus notes] [--no-launch] [--paste | --terminal]"
 disable-model-invocation: true
 allowed-tools: Bash(sh "${CLAUDE_SKILL_DIR}/scripts/py" *) Bash(git status *) Bash(git diff *) Bash(git log *) Read Write Edit
@@ -9,8 +9,8 @@ allowed-tools: Bash(sh "${CLAUDE_SKILL_DIR}/scripts/py" *) Bash(git status *) Ba
 # /handoff
 
 You are handing this session off to a fresh Claude Code session that has **none of
-this conversation**. Produce `handoff.md` in the project root, then launch the new
-session. User arguments: `$ARGUMENTS`
+this conversation**. Write the handoff at the target path printed in the digest,
+then launch the new session. User arguments: `$ARGUMENTS`
 
 ## Token budget — follow strictly
 
@@ -20,11 +20,13 @@ The point of this skill is a good handoff *without* burning tokens.
   re-reading it costs nothing. The digest below fills gaps, it does not replace memory.
 - The digest is pre-computed and size-capped. Do **not** re-run the git commands it
   already covers, `cat` whole files, re-read the raw `.jsonl` transcript, or spawn subagents.
-- Only if `compactions:` in the Session index is **> 0** (earlier conversation was
-  summarised away) run the condensed transcript once:
+- Run the condensed transcript once (capped at 30,000 characters) only if
+  `compactions:` is **> 0** and your conversation memory plus **Last activity**
+  leave a gap that matters for the handoff:
   `sh "${CLAUDE_SKILL_DIR}/scripts/py" digest.py transcript --session "${CLAUDE_SESSION_ID}" --cwd "${CLAUDE_PROJECT_DIR}"`
 - You may open at most ~3 specific files (or line ranges) if a claim in the handoff
-  needs checking. Budget: the whole skill run should read well under 20k tokens.
+  needs checking. Reads of `CLAUDE.md`, `DESIGN.md` and `README.md` needed for edits
+  in step 2 are outside that file count. Keep the whole run well under 20k tokens.
 
 ## Pre-computed digest
 
@@ -44,14 +46,16 @@ disabled in this environment: run that command yourself once.)
    `CLAUDE.md` / `DESIGN.md` / `README.md` and this session produced durable facts they
    lack (or made them wrong), update those files now with small targeted edits, and
    say which you changed. Don't create them if the project doesn't use them.
-3. **Write `handoff.md`** (overwrite any previous one; carry forward items from the
-   previous handoff that are still open). Use the template below. Aim for 50–150 lines.
+3. **Write to the digest's `Handoff target`** relative to the printed project folder.
+   Write the new file directly without a Read. Never overwrite older handoffs. Carry forward open
+   items from **Previous handoff** and use the template below. Aim for 50–150 lines.
    Be concrete: `path:line`, exact commands, exact error text. Mark anything you did
    not verify as *(unverified)*. Never include secrets, tokens or credentials.
-   If `$ARGUMENTS` has focus notes, weight the handoff toward them.
-4. **Don't commit `handoff.md`** unless the user asked; it's session state.
+   Treat `--no-launch`, `--paste` and `--terminal` as flags. Weight the handoff
+   toward any remaining focus notes in `$ARGUMENTS`.
+4. **Keep `.handoff/` out of commits.** It holds local session state.
 5. **Launch the new session** unless `$ARGUMENTS` contains `--no-launch`:
-   `sh "${CLAUDE_SKILL_DIR}/scripts/py" launch.py --cwd "${CLAUDE_PROJECT_DIR}"`
+   `sh "${CLAUDE_SKILL_DIR}/scripts/py" launch.py --cwd "${CLAUDE_PROJECT_DIR}" --file "<target path from digest>"`
    Append `--mode paste` if `$ARGUMENTS` contains `--paste`, or `--mode terminal` if it
    contains `--terminal`.
    - `LAUNCHED:` → tell the user a new terminal opened with the new session.
@@ -60,12 +64,12 @@ disabled in this environment: run that command yourself once.)
      and show the prompt in a code block.
    - `NOT_LAUNCHED:` → show the user the printed command and the `/clear` + paste
      alternative, verbatim, in a code block.
-6. Finish with ≤5 lines: where handoff.md is, which docs you updated, launch result.
+6. In ≤5 lines, report the handoff path, any docs you updated and the launch result.
 
-## handoff.md template
+## Session handoff template
 
 ````markdown
-# Handoff — <project> — <YYYY-MM-DD HH:MM>
+# Session handoff — <project> — <YYYY-MM-DD HH:MM>
 
 > Written by the previous Claude session for the next one. Read this first, then
 > CLAUDE.md. Trust the code over this file if they disagree.
