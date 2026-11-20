@@ -47,7 +47,7 @@ def strip_ours(hooks):
         groups = []
         for g in hooks[event]:
             kept = [h for h in g.get("hooks", [])
-                    if not any(marker in slash(h.get("command", ""))
+                    if not any(marker in slash(h.get("command", "") if isinstance(h.get("command", ""), str) else "")
                                for marker in (MARKER, WRAPPER_MARKER))]
             if kept:
                 groups.append({**g, "hooks": kept})

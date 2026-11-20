@@ -88,6 +88,25 @@ class DigestExtraTest(unittest.TestCase):
         self.assertIn("#### README.md", out)
         self.assertIn("+root edit", out)
 
+    def test_nested_cwd_lists_repo_root_key_docs_and_untracked_relative_paths(self):
+        self.init_repo()
+        subdir = self.cwd / "nested"
+        subdir.mkdir()
+        (self.cwd / "root.md").write_text("root doc\n")
+        (subdir / "local.txt").write_text("x")
+        out = self.run_script(DIGEST, "context", cwd=subdir)
+        self.assertIn("- ../README.md:", out)
+        self.assertIn("local.txt", out)
+        self.assertNotIn("../local.txt", out)
+
+    def test_markdown_changes_excludes_handoff_directory(self):
+        self.init_repo()
+        (self.cwd / ".handoff").mkdir()
+        (self.cwd / ".handoff" / "old.md").write_text("private state")
+        with redirect_stdout(io.StringIO()) as out:
+            digest.print_markdown_changes(str(self.cwd), "HEAD")
+        self.assertNotIn("old.md", out.getvalue())
+
     def test_git_decodes_utf8_and_replaces_invalid_bytes(self):
         doc = self.init_repo()
         doc.write_bytes("café".encode("utf-8") + b"\xff\n")
@@ -168,9 +187,8 @@ class DigestExtraTest(unittest.TestCase):
             os.utime(path, (mtime, mtime))
         (self.cwd / "handoff.md").write_bytes(b"skip legacy\n")
         out = self.context_at_fixed_time("--session", SID)
-        self.assertIn("Handoff target already exists", out)
-        self.assertIn("carry this item", out)
-        for excluded in ("exclude current", "skip older", "skip legacy"):
+        self.assertIn("exclude current", out)
+        for excluded in ("carry this item", "skip older", "skip legacy"):
             self.assertNotIn(excluded, out)
 
     def test_launch_file_flows_to_paste_and_terminal_prompts(self):
@@ -244,3 +262,10 @@ class DigestExtraTest(unittest.TestCase):
         git_section = out.split("### Git\n", 1)[1].split("\n### ", 1)[0]
         self.assertNotIn("Unpushed commit", git_section)
         self.assertNotIn("subject ", git_section)
+
+    def test_same_minute_handoff_uses_first_free_name(self):
+        directory = self.cwd / ".handoff"
+        directory.mkdir()
+        (directory / "20261120-1405-session.md").touch()
+        out = self.context_at_fixed_time()
+        self.assertIn("Handoff target: .handoff/20261120-1405-session-2.md", out)

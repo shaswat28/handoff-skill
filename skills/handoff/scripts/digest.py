@@ -222,7 +222,13 @@ def prepare_handoff(cwd, session_id, now):
     except OSError:
         # The ignore file may already exist, or the project may be read-only.
         pass
-    return f"{HANDOFF_DIR}/{now:%Y%m%d-%H%M}-{sid}.md"
+    stem = f"{now:%Y%m%d-%H%M}-{sid}"
+    target = f"{HANDOFF_DIR}/{stem}.md"
+    suffix = 2
+    while os.path.lexists(os.path.join(cwd, target)):
+        target = f"{HANDOFF_DIR}/{stem}-{suffix}.md"
+        suffix += 1
+    return target
 
 
 def cmd_context(args):
@@ -232,8 +238,6 @@ def cmd_context(args):
     print(f"# Handoff digest — {os.path.basename(cwd)}")
     print(f"cwd: {cwd}   generated: {now:%Y-%m-%d %H:%M}")
     print(f"Handoff target: {target}")
-    if os.path.lexists(os.path.join(cwd, target)):
-        print("Handoff target already exists.")
 
     # --- session index and capped activity after compaction
     idx = None
@@ -280,8 +284,8 @@ def cmd_context(args):
         commits = git(["log", "--oneline", "-15", "@{u}..HEAD"], cwd)
         if commits:
             head += ["", "Unpushed commits:", commits]
-    untracked = [line for line in git(["status", "--porcelain", "--untracked-files=all"], cwd).splitlines()
-                 if line.startswith("?? ")]
+    git_root = git(["rev-parse", "--show-toplevel"], cwd) or cwd
+    untracked = git(["ls-files", "--others", "--exclude-standard"], cwd).splitlines()
     if untracked:
         head += ["", "Untracked files:", *untracked[:30]]
         if len(untracked) > 30:
@@ -316,13 +320,21 @@ def cmd_context(args):
 def print_docs(cwd, base, target=None):
     # Key docs: presence and size only, so Claude can decide what to open.
     rows = []
+    git_root = os.path.realpath(git(["rev-parse", "--show-toplevel"], cwd) or cwd)
+    cwd_real = os.path.realpath(cwd)
     for name in KEY_DOCS:
-        p = os.path.join(cwd, name)
-        if os.path.isfile(p):
+        candidates = [os.path.join(cwd, name)]
+        root_candidate = os.path.join(git_root, name)
+        if os.path.abspath(root_candidate) != os.path.abspath(candidates[0]):
+            candidates.append(root_candidate)
+        for p in candidates:
+            if not os.path.isfile(p):
+                continue
             with open(p, encoding="utf-8", errors="replace") as f:
                 n = sum(1 for _ in f)
             mtime = datetime.fromtimestamp(os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M")
-            rows.append(f"- {name}: {n} lines, modified {mtime}")
+            rows.append(f"- {os.path.relpath(os.path.realpath(p), cwd_real)}: {n} lines, modified {mtime}")
+            break
     section("Key docs present", "\n".join(rows))
 
     if base:
@@ -344,9 +356,9 @@ def print_markdown_changes(cwd, base):
     # Markdown diffs are the densest signal of intent, so show the actual
     # hunks (capped), not just a stat. The old handoff is shown separately.
     changed = [f for f in git(["diff", "--name-only", base, "--", "*.md", "*.mdx"], cwd).splitlines()
-               if os.path.basename(f) != HANDOFF_NAME]
+               if os.path.basename(f) != HANDOFF_NAME and f.split("/")[0] != HANDOFF_DIR]
     untracked = [f for f in git(["ls-files", "--others", "--exclude-standard", "--", "*.md", "*.mdx"], cwd).splitlines()
-                 if os.path.basename(f) != HANDOFF_NAME]
+                 if os.path.basename(f) != HANDOFF_NAME and f.split("/")[0] != HANDOFF_DIR]
     out, total = [], 0
     for f in changed[:12]:
         d = git(["diff", "-U1", base, "--", f], cwd).splitlines()

@@ -47,8 +47,7 @@ disabled in this environment: run that command yourself once.)
    lack (or made them wrong), update those files now with small targeted edits, and
    say which you changed. Don't create them if the project doesn't use them.
 3. **Write to the digest's `Handoff target`** relative to the printed project folder.
-   Write the new file directly without a Read. If the target already exists, stop
-   and report the collision. Never overwrite older handoffs. Carry forward open
+   Write the new file directly without a Read. Never overwrite older handoffs. Carry forward open
    items from **Previous handoff** and use the template below. Aim for 50–150 lines.
    Be concrete: `path:line`, exact commands, exact error text. Mark anything you did
    not verify as *(unverified)*. Never include secrets, tokens or credentials.

@@ -36,6 +36,15 @@ class HooksRegressionTest(unittest.TestCase):
             env=self.env, capture_output=True, text=True, encoding="utf-8",
         )
 
+    def test_reinstall_keeps_foreign_hook_with_null_command(self):
+        self.settings.write_text(json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [
+            {"type": "command", "command": None},
+        ]}]}}), encoding="utf-8")
+        result = self.install("install")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        groups = json.loads(self.settings.read_text(encoding="utf-8"))["hooks"]["UserPromptSubmit"]
+        self.assertIsNone(groups[0]["hooks"][0]["command"])
+
     def write_usage(self, *entries):
         self.transcript.write_text("".join(
             json.dumps({"type": "assistant", "message": {
