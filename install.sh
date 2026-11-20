@@ -5,6 +5,7 @@
 #   ./install.sh --project DIR    install into DIR/.claude/skills/handoff (hooks stay global)
 #   ./install.sh --window N       context window in tokens (default 200000; 1M models: 1000000)
 #   ./install.sh --warn 45,70     warning thresholds, % of the window (default 45,70)
+#   ./install.sh --notify         also show context warnings as macOS notifications
 #   ./install.sh --no-compact-hold   don't postpone the first auto-compaction
 #   ./install.sh --no-hooks       skill only; also removes previously installed hooks
 set -euo pipefail
@@ -22,9 +23,9 @@ while [ $# -gt 0 ]; do
     --link) mode=link ;;
     --project) dest="$(cd "$2" && pwd)/.claude/skills/handoff"; shift ;;
     --window|--warn) hook_args+=("$1" "$2"); shift ;;
-    --no-compact-hold) hook_args+=("$1") ;;
+    --notify|--no-compact-hold) hook_args+=("$1") ;;
     --no-hooks) hooks=no ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) sed -n '1d; /^#/p; /^[^#]/q' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift

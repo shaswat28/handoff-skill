@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code hooks that nudge you to run /handoff before a chat gets too long.
 
-  hooks.py prompt [--window TOKENS] [--warn PCT,PCT,...]
+  hooks.py prompt [--window TOKENS] [--warn PCT,PCT,...] [--notify]
       UserPromptSubmit. Warns once per chat per threshold, e.g. 45% ("cheapest
       point to start fresh") and 70% ("long chats get slower and less precise").
   hooks.py precompact
@@ -16,6 +16,7 @@ so they can never break a session. install.sh / install.ps1 register them.
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -63,10 +64,15 @@ def context_tokens(transcript_path):
             continue  # includes the partial first line of the tail
         if e.get("type") != "assistant" or e.get("isSidechain"):
             continue
-        u = (e.get("message") or {}).get("usage")
+        message = e.get("message") or {}
+        if message.get("model") == "<synthetic>":
+            continue
+        u = message.get("usage")
         if u:
-            return (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
-                    + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0))
+            total = (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                     + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0))
+            if total:
+                return total
     return 0
 
 
@@ -86,8 +92,9 @@ def on_prompt(data, args):
     if not levels or args.window <= 0:
         return 0
     used = context_tokens(data.get("transcript_path") or "")
+    window = 1000000 if used > args.window else args.window
     sid = data.get("session_id")
-    crossed = [p for p in levels if used >= args.window * p / 100]
+    crossed = [p for p in levels if used >= window * p / 100]
     if not crossed:
         return 0
     top = crossed[-1]
@@ -95,8 +102,16 @@ def on_prompt(data, args):
         return 0
     for p in crossed:  # show only the highest; mark lower ones so they never fire late
         mark(sid, f"warn{p}")
-    print(json.dumps({"systemMessage": warning_text(
-        top, used, args.window, top == levels[0], top == levels[-1])}))
+    message = warning_text(top, used, window, top == levels[0], top == levels[-1])
+    print(json.dumps({"systemMessage": message}))
+    if args.notify and sys.platform == "darwin":
+        escaped = message.replace("\\", "\\\\").replace('"', '\\"')
+        try:
+            subprocess.run(["osascript", "-e", f'display notification "{escaped}" with title "/handoff"'],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            pass
     return 0
 
 
@@ -118,6 +133,7 @@ def main():
     ap.add_argument("event", nargs="?", default="")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW)
     ap.add_argument("--warn", default=DEFAULT_WARN)
+    ap.add_argument("--notify", action="store_true")
     try:
         args = ap.parse_args()
         data = json.load(sys.stdin)

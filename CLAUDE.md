@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-A Claude Code skill (`/handoff`) that writes `handoff.md` from a token-cheap
+A Claude Code skill (`/handoff`) that writes a handoff (`.handoff/<time>-<session>.md`) from a token-cheap
 digest and launches a fresh session to read it. See README.md for usage.
 
 ## Architecture at a glance
@@ -20,7 +20,7 @@ digest and launches a fresh session to read it. See README.md for usage.
 ## Commands
 
 ```sh
-python3 -m unittest discover -s tests -v    # ~22 tests, ~2s
+python3 -m unittest discover -s tests -v    # ~50 tests, ~6s
 ./install.sh --link --window 1000000        # dev install/update: symlink + hooks
 CLAUDE_CONFIG_DIR=$(mktemp -d) ./install.sh # try the installer without touching ~/.claude
 ```
@@ -32,14 +32,18 @@ Windows ships PowerShell 5.1, so keep the script free of 7-only syntax
 
 End-to-end check (uses real tokens, about $0.11): make a temp git repo,
 `install.sh --project <it>`, run `claude -p "<small task>" --permission-mode acceptEdits`,
-then `claude -p "/handoff --no-launch" --continue …` in that repo, and inspect `handoff.md`.
+then `claude -p "/handoff --no-launch" --continue …` in that repo, and inspect the file in `.handoff/`.
 
 ## Current state (2026-11-20)
 
-Branch `fix/digest-log-parsing`: digest fixes for the first prompt being
-dropped, `api-request-blob` double counting, prompt numbering past 25, and
-cwd-relative edited paths. The owner's installed copy predates the hooks;
-re-run the installer after merging.
+Branch `fix/digest-log-parsing`: log-parsing fixes, hook safety (missing
+script, synthetic usage, backups, symlinked settings), per-session handoff
+files in `.handoff/`, a Last activity section after compaction, untracked and
+unpushed git info, and macOS `--notify`. 50 tests pass. Verified on a real Mac:
+digest, paste mode, launcher dry run, hooks under a minimal PATH. Not yet run:
+a real Terminal.app launch, a real `/handoff` end to end with the new
+`.handoff/` flow. The owner's installed copy predates the hooks; re-run the
+installer after merging.
 
 ### Earlier (2026-09-27)
 
@@ -94,10 +98,22 @@ desktop-Linux launching are still untested on real machines.
   skips that compaction. That behaviour and the `trigger` input field were both
   verified with a real `/compact`. Everything else exits 0, including bad
   arguments (it catches `BaseException`, because argparse raises `SystemExit`).
-- **The hook command uses an absolute Python path** (`sys.executable` at
-  install time), quoted and with forward slashes, so it runs in any shell,
-  cmd included. If that Python is removed or moved, the hooks fail until the
-  installer is run again.
+- **A hook whose script is missing must not exit 2.** `python missing.py`
+  exits 2, which blocks every prompt. On macOS/Linux the hook command is
+  `sh ".../scripts/py" hooks.py …`: the wrapper exits 0 when the script is
+  missing, and a missing wrapper makes `sh` exit 127, which doesn't block. This
+  also avoids version-pinned Pythons (python.org's `.../Versions/3.13/...`).
+  On Windows it's the absolute `sys.executable` with a `-c` loader that runs
+  hooks.py only if it exists, because cmd has no `sh`. `strip_ours` removes
+  both old and new command formats.
+- **Synthetic assistant entries carry zero usage.** `model: "<synthetic>"`
+  entries (API errors, interrupts) must be skipped when measuring context, or
+  the warning reads 0 tokens on a nearly full chat.
+- **Task notifications are logged as `user` entries.** Skip `origin.kind`
+  other than `human`, or they flood the prompt index.
+- **Handoffs are new files, never overwrites.** Claude Code's Write fails on
+  an existing file that wasn't Read, so a fixed `handoff.md` cost a round trip.
+  The digest prints the target path and creates `.handoff/.gitignore`.
 - **Hook settings are command arguments, not `env`.** It isn't verified that
   a settings.json `env` block reaches hook processes. Arguments always do.
 - **PowerShell turns `-Warn 45,70` into an array.** A `[string]` parameter
