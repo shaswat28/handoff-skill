@@ -1,12 +1,13 @@
 <#
-Install or update the /handoff skill and its context-warning hooks on Windows.
+Install or update the /handoff skill on Windows. Hooks are opt-in.
 
   powershell -ExecutionPolicy Bypass -File install.ps1 [options]
 
+  -Hooks              install/update context-warning hooks
   -Window 1000000     context window in tokens (default 200000; 1M models: 1000000)
   -Warn 45,70         warning thresholds, % of the window (default 45,70)
   -NoCompactHold      don't postpone the first auto-compaction
-  -NoHooks            skill only; also removes previously installed hooks
+  -NoHooks            remove previously installed hooks
   -Project DIR        install into DIR\.claude\skills\handoff (hooks stay global)
 
 Pulls the latest version first when run from a git clone, so re-running it is
@@ -15,12 +16,20 @@ also how you update. Written for Windows PowerShell 5.1 and PowerShell 7.
 param(
   [int]$Window = 200000,
   [string[]]$Warn = @("45", "70"),  # "-Warn 45,70" arrives as an array
+  [switch]$Hooks,
   [switch]$NoCompactHold,
   [switch]$NoHooks,
   [string]$Project = ""
 )
 # Not "Stop": in PowerShell 5.1 that turns any stderr from git/python into a fatal error.
 $ErrorActionPreference = "Continue"
+
+$hookOptionPassed = $PSBoundParameters.ContainsKey("Window") -or
+  $PSBoundParameters.ContainsKey("Warn") -or $NoCompactHold
+if ($NoHooks -and ($Hooks -or $hookOptionPassed)) {
+  Write-Error "-Hooks or hook options cannot be combined with -NoHooks"
+  exit 2
+}
 
 $repo = $PSScriptRoot
 $src = Join-Path $repo "skills/handoff"
@@ -80,11 +89,18 @@ $installer = Join-Path $dest "scripts/hooks_install.py"
 $pyRest = @($py | Select-Object -Skip 1)
 if ($NoHooks) {
   $hookArgs = @("uninstall")
-} else {
+} elseif ($Hooks -or $hookOptionPassed) {
   $hookArgs = @("install", "--window", "$Window", "--warn", (($Warn -join ",") -replace "\s", ""))
   if ($NoCompactHold) { $hookArgs += "--no-compact-hold" }
+} else {
+  $hookArgs = $null
 }
-& $py[0] @pyRest $installer @hookArgs
-if ($LASTEXITCODE -ne 0) { Write-Warning "hooks were not installed (see message above)" }
+if ($null -ne $hookArgs) {
+  & $py[0] @pyRest $installer @hookArgs
+  if ($LASTEXITCODE -ne 0) { Write-Warning "hooks were not installed (see message above)" }
+}
 
 Write-Host "restart Claude Code (or the desktop app), then type /handoff"
+if ($null -eq $hookArgs) {
+  Write-Host 'Hooks are optional: add context warnings with "install.ps1 -Hooks -Window 1000000".'
+}

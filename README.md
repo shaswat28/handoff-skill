@@ -25,17 +25,21 @@ Running the installer again is also how you **update**: it pulls the latest
 version first, reinstalls, and keeps the last 3 installs in
 `~/.claude/skill-backups/`.
 
-Set `--window` / `-Window` to your model's context window. Typing `/context`
-in Claude Code shows it (e.g. `191.9k / 1m`). The default is 200000.
+A plain install adds only the `/handoff` skill and doesn't touch
+`settings.json`. The [context-warning hooks](#context-warnings-optional) are
+opt-in: add `--hooks` (or any hook option such as `--window`). Set
+`--window` / `-Window` to your model's context window. Typing `/context` in
+Claude Code shows it (e.g. `191.9k / 1m`). The default is 200000.
 
 ### macOS / Linux
 
 ```sh
 git clone https://github.com/shaswat28/handoff-skill.git ~/handoff-skill
-cd ~/handoff-skill && ./install.sh --window 1000000
+cd ~/handoff-skill && ./install.sh                 # skill only
+./install.sh --hooks --window 1000000              # optional: add the hooks
 ```
 
-Later updates: `cd ~/handoff-skill && ./install.sh --window 1000000`.
+Later updates: run `./install.sh` again (add `--hooks …` if you use the hooks).
 With `--link` (symlink instead of copy), a plain `git pull` is enough.
 `--project /path/to/repo` installs the skill for one repo only.
 
@@ -47,8 +51,10 @@ also need Python from [python.org](https://www.python.org/downloads/). Tick
 
 ```powershell
 git clone https://github.com/shaswat28/handoff-skill.git $HOME\handoff-skill
-powershell -ExecutionPolicy Bypass -File $HOME\handoff-skill\install.ps1 -Window 1000000
+powershell -ExecutionPolicy Bypass -File $HOME\handoff-skill\install.ps1
 ```
+
+Add `-Hooks -Window 1000000` to also install the hooks.
 
 Later updates: run the second line again. `-ExecutionPolicy Bypass` is
 needed because Windows blocks downloaded scripts by default, and it applies
@@ -60,19 +66,20 @@ first Windows install.
 
 | sh | PowerShell | Effect |
 |---|---|---|
+| `--hooks` | `-Hooks` | install or update the context-warning hooks |
 | `--window N` | `-Window N` | context window in tokens (default 200000) |
 | `--warn 45,70` | `-Warn 45,70` | warning thresholds, % of the window |
 | `--no-compact-hold` | `-NoCompactHold` | don't postpone the first auto-compaction |
 | `--notify` | — | also show the warnings as macOS notifications |
-| `--no-hooks` | `-NoHooks` | skill only; removes the hooks if installed |
+| `--no-hooks` | `-NoHooks` | remove previously installed hooks |
 | `--project DIR` | `-Project DIR` | install the skill into one repo (hooks stay global) |
 | `--link` | — | symlink instead of copy |
 
 Restart Claude Code (or the desktop app) after installing.
 
-## Context warnings
+## Context warnings (optional)
 
-The installer adds two hooks to `~/.claude/settings.json`. It backs the file
+With `--hooks`, the installer adds two hooks to `~/.claude/settings.json`. It backs the file
 up first, to `settings.json.handoff-bak`, and leaves your other settings and
 hooks alone.
 

@@ -20,8 +20,9 @@ digest and launches a fresh session to read it. See README.md for usage.
 ## Commands
 
 ```sh
-python3 -m unittest discover -s tests -v    # ~50 tests, ~6s
-./install.sh --link --window 1000000        # dev install/update: symlink + hooks
+python3 -m unittest discover -s tests -v    # ~62 tests, ~8s
+./install.sh --link                         # dev install/update: symlink, skill only
+./install.sh --link --hooks --window 1000000 # same, plus the opt-in hooks
 CLAUDE_CONFIG_DIR=$(mktemp -d) ./install.sh # try the installer without touching ~/.claude
 ```
 
@@ -39,7 +40,8 @@ then `claude -p "/handoff --no-launch" --continue …` in that repo, and inspect
 Branch `fix/digest-log-parsing`: log-parsing fixes, hook safety (missing
 script, synthetic usage, backups, symlinked settings), per-session handoff
 files in `.handoff/`, a Last activity section after compaction, untracked and
-unpushed git info, and macOS `--notify`. 50 tests pass. Verified on a real Mac:
+unpushed git info, macOS `--notify`, and opt-in hooks (`--hooks`; a plain
+install never touches settings.json). 61 tests pass. Verified on a real Mac:
 digest, paste mode, launcher dry run, hooks under a minimal PATH. Not yet run:
 a real Terminal.app launch, a real `/handoff` end to end with the new
 `.handoff/` flow. The owner's installed copy predates the hooks; re-run the
